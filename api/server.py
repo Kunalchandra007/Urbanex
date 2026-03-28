@@ -5,7 +5,7 @@ Exposes all required endpoints: /reset, /step, /state, /tasks, /grader, /baselin
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from environment.velora_env import VeloraEnv
@@ -99,9 +99,11 @@ GRADER_MAP = {
 # ---------------------------------------------------------------------------
 
 @app.post("/reset", response_model=Observation)
-def reset_env(request: ResetRequest):
+def reset_env(request: Optional[ResetRequest] = Body(default=None)):
     """Reset the environment and return the initial observation."""
     global _env
+    if request is None:
+        request = ResetRequest()
     if request.task not in TASK_CONFIGS:
         raise HTTPException(status_code=400, detail=f"Unknown task '{request.task}'. Choose: easy, medium, hard")
     _env = VeloraEnv(task=request.task, seed=request.seed)
