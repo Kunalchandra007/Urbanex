@@ -5,6 +5,12 @@ __pycache__
 .pytest_cache
 .git
 .gitignore
+.gitattributes
 tests/
 conftest.py
 pyproject.toml
+README.md
+.env
+.env.local
+*.md
+
