@@ -28,7 +28,7 @@ def run_inference(task: str = "easy", seed: int = 42):
             action = {"action_type": "continue"}
         
         result = client.post("/step", json=action).json()
-        trajectory.append({"observation": obs, "action": action, "reward": result["reward"]})
+        trajectory.append({"observation": obs, "action": action, "reward": result["reward"], "reward_info": result.get("reward_info", {})})
         obs = result["observation"]
         done = result["done"]
         step += 1

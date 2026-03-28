@@ -39,7 +39,8 @@ class ResetRequest(BaseModel):
 
 class StepResponse(BaseModel):
     observation: Observation
-    reward: Reward
+    reward: float
+    reward_info: Dict[str, Any]
     done: bool
     info: Dict[str, Any]
 
@@ -119,7 +120,13 @@ def step_env(action: Action):
         obs, reward, done, info = env.step(action)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return StepResponse(observation=obs, reward=reward, done=done, info=info)
+    return StepResponse(
+        observation=obs,
+        reward=float(reward.total),
+        reward_info=reward.model_dump(),
+        done=done,
+        info=info,
+    )
 
 
 @app.get("/state")
