@@ -28,8 +28,8 @@ action_space:
   actions: [select_route, reroute, report_incident, continue, stop]
 observation_space:
   type: structured
-  fields: [current_location, destination, available_routes, active_incidents,
-           traffic_level, weather, current_route, distance_remaining_km]
+  fields: [step, current_location, destination, available_routes, active_incidents,
+           traffic_level, weather, current_route, distance_remaining_km, episode_done]
 reward_range: [-1.0, 1.0]
 endpoints:
   reset: POST /reset
