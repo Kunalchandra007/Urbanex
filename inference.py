@@ -15,35 +15,57 @@ def run_inference(task: str = "easy", seed: int = 42):
     step = 0
 
     while not done and step < 20:
-        # Rule-based agent: pick safest fastest route
         routes = obs.get("available_routes", [])
-        safe_routes = [r for r in routes if r.get("incident_count", 0) == 0]
+        incidents = obs.get("active_incidents", [])
+        current_route = obs.get("current_route")
 
-        if safe_routes:
-            # Lowest risk, then fastest
-            best = min(safe_routes, key=lambda r: (r.get("risk_score", 1.0), r.get("estimated_time_min", 999)))
-            action = {"action_type": "select_route", "route_id": best["route_id"]}
-        elif routes:
-            # All risky — pick lowest risk
-            best = min(routes, key=lambda r: r.get("risk_score", 1.0))
-            action = {"action_type": "select_route", "route_id": best["route_id"]}
+        # Mirror the rule-based agent logic:
+        if current_route is None:
+            # No route selected yet — pick safest+fastest
+            clean = [r for r in routes if r.get("incident_count", 0) == 0]
+            pool = clean if clean else routes
+            if pool:
+                best = min(pool, key=lambda r: r.get("estimated_time_min", 999))
+                action = {"action_type": "select_route", "route_id": best["route_id"]}
+            else:
+                action = {"action_type": "continue"}
         else:
-            action = {"action_type": "continue"}
+            # Check if current route has high-severity incidents
+            route_incidents = [
+                i for i in incidents
+                if current_route in i.get("affects_routes", [])
+            ]
+            high_sev = [i for i in route_incidents if i.get("severity") == "high"]
+
+            if high_sev:
+                # Reroute to cleanest option
+                clean = [r for r in routes if r.get("incident_count", 0) == 0]
+                if clean and clean[0]["route_id"] != current_route:
+                    best = min(clean, key=lambda r: r.get("estimated_time_min", 999))
+                    action = {"action_type": "reroute", "route_id": best["route_id"]}
+                else:
+                    action = {"action_type": "continue"}
+            else:
+                # Route is clean — keep going
+                action = {"action_type": "continue"}
 
         result = client.post("/step", json=action).json()
 
-        # Use "obs" key — matches what the grader expects
+        # Append POST-step observation (matches baseline_agent.py behaviour)
+        next_obs = result["observation"]
         trajectory.append({
-            "obs": obs,
+            "obs": next_obs,     # ← post-step obs, so episode_done is correct
             "action": action,
             "reward": result["reward"],
         })
-        obs = result["observation"]
+        obs = next_obs
         done = result["done"]
         step += 1
 
     # Grade
-    score_result = client.post("/grader", json={"task": task, "trajectory": trajectory}).json()
+    score_result = client.post(
+        "/grader", json={"task": task, "trajectory": trajectory}
+    ).json()
     score = score_result.get("score", 0.0)
 
     print(f"Task: {task} | Steps: {step} | Score: {score}")
