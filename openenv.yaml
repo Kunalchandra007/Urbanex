@@ -1,0 +1,40 @@
+name: urbanex
+version: "1.0.0"
+description: >
+  URBANEX (Urban + Exploration) — a city navigation RL environment where an AI agent
+  acts as a smart routing assistant for Bangalore. Named for the dual meaning: exploring
+  an urban road network AND the core RL explore-vs-exploit dilemma every agent must solve.
+  The agent selects routes, avoids incidents, responds to dynamic traffic and weather,
+  and optimizes for safety, time, and fuel.
+domain: urban-mobility
+tasks:
+  - id: easy
+    name: reach_destination
+    difficulty: easy
+    max_steps: 10
+    description: Reach destination with no constraints in a clear city
+  - id: medium
+    name: avoid_and_optimize
+    difficulty: medium
+    max_steps: 15
+    description: Reach destination while avoiding pre-placed incidents
+  - id: hard
+    name: dynamic_rerouting
+    difficulty: hard
+    max_steps: 20
+    description: Navigate a changing city with dynamic incidents and traffic
+action_space:
+  type: discrete-structured
+  actions: [select_route, reroute, report_incident, continue, stop]
+observation_space:
+  type: structured
+  fields: [current_location, destination, available_routes, active_incidents,
+           traffic_level, weather, current_route, distance_remaining_km]
+reward_range: [-1.0, 1.0]
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  tasks: GET /tasks
+  grader: POST /grader
+  baseline: POST /baseline
