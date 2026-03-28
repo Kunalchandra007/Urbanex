@@ -5,9 +5,6 @@ __pycache__
 .pytest_cache
 .git
 .gitignore
-*.md
-*.yaml
-!openenv.yaml
 tests/
 conftest.py
 pyproject.toml
