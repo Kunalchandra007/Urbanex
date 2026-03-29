@@ -5,7 +5,7 @@ Exposes all required endpoints: /reset, /step, /state, /tasks, /grader, /baselin
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from environment.velora_env import VeloraEnv
@@ -100,14 +100,32 @@ GRADER_MAP = {
 # ---------------------------------------------------------------------------
 
 @app.post("/reset", response_model=Observation)
-def reset_env(request: Optional[ResetRequest] = Body(default=None)):
-    """Reset the environment and return the initial observation."""
+def reset_env(
+    request: Optional[ResetRequest] = Body(default=None),
+    task_id: Optional[str] = Query(default=None),
+    task: Optional[str] = Query(default=None),
+    seed: Optional[int] = Query(default=None),
+):
+    """
+    Reset the environment and return the initial observation.
+    Accepts both JSON body and query parameters for flexibility.
+    Supports both 'task' and 'task_id' parameter names.
+    """
     global _env
-    if request is None:
-        request = ResetRequest()
-    if request.task not in TASK_CONFIGS:
-        raise HTTPException(status_code=400, detail=f"Unknown task '{request.task}'. Choose: easy, medium, hard")
-    _env = VeloraEnv(task=request.task, seed=request.seed)
+    
+    # Priority: JSON body > query parameters
+    if request is not None:
+        task_name = request.task
+        seed_val = request.seed
+    else:
+        # Use query parameters (support both task_id and task)
+        task_name = task_id or task or "easy"
+        seed_val = seed if seed is not None else 42
+    
+    if task_name not in TASK_CONFIGS:
+        raise HTTPException(status_code=400, detail=f"Unknown task '{task_name}'. Choose: easy, medium, hard")
+    
+    _env = VeloraEnv(task=task_name, seed=seed_val)
     obs = _env.reset()
     return obs
 
