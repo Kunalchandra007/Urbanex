@@ -105,6 +105,17 @@ GRADER_MAP = {
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/")
+def root():
+    """Root endpoint — required for Hugging Face Spaces health check."""
+    return {
+        "name": "URBANEX",
+        "version": "1.0.0",
+        "status": "ok",
+        "description": "Urban navigation RL environment",
+    }
+
+
 @app.get("/health")
 def health():
     """Standard OpenEnv health check endpoint."""
