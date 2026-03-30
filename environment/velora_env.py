@@ -158,6 +158,10 @@ class VeloraEnv:
             "greedy_trap_fired": self._greedy_trap_fired,
         }
 
+    def get_observation(self) -> Observation:
+        """Get the current observation without advancing the episode."""
+        return self._prev_obs or self._build_observation()
+
     # ──────────────────────────────────────────────────────────────────────
     # Private helpers
     # ──────────────────────────────────────────────────────────────────────
