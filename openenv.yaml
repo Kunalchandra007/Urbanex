@@ -6,6 +6,24 @@ description: >
   an urban road network AND the core RL explore-vs-exploit dilemma every agent must solve.
   The agent selects routes, avoids incidents, responds to dynamic traffic and weather,
   and optimizes for safety, time, and fuel.
+
+# OpenEnv Manifest (required for deployment)
+spec_version: 1
+default_image: urbanex:latest
+
+client:
+  class_name: UrbanexEnv
+  module: urbanex.client
+
+action:
+  class_name: Action
+  module: urbanex.models
+
+observation:
+  class_name: Observation
+  module: urbanex.models
+
+# Documentation fields (optional, for reference)
 domain: urban-mobility
 tasks:
   - id: easy

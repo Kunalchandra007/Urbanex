@@ -22,6 +22,10 @@ dev = [
     "pytest-asyncio==0.23.0",
 ]
 
+[project.scripts]
+urbanex = "api.server:app"
+urbanex-server = "api.server:app"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["models*", "environment*", "tasks*", "graders*", "api*", "baseline*"]
