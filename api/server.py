@@ -37,12 +37,18 @@ class ResetRequest(BaseModel):
     seed: int = 42
 
 
+class ResetResponse(BaseModel):
+    """Standard OpenEnv reset response format."""
+    observation: Observation
+    info: Dict[str, Any] = {}
+
+
 class StepResponse(BaseModel):
+    """Standard OpenEnv step response format."""
     observation: Observation
     reward: float
-    reward_info: Dict[str, Any]
     done: bool
-    info: Dict[str, Any]
+    info: Dict[str, Any] = {}
 
 
 class GraderRequest(BaseModel):
@@ -99,7 +105,7 @@ GRADER_MAP = {
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@app.post("/reset", response_model=Observation)
+@app.post("/reset", response_model=ResetResponse)
 def reset_env(
     request: Optional[ResetRequest] = Body(default=None),
     task_id: Optional[str] = Query(default=None),
@@ -110,6 +116,12 @@ def reset_env(
     Reset the environment and return the initial observation.
     Accepts both JSON body and query parameters for flexibility.
     Supports both 'task' and 'task_id' parameter names.
+    
+    Returns standard OpenEnv format:
+    {
+        "observation": {...},
+        "info": {}
+    }
     """
     global _env
     
@@ -127,12 +139,22 @@ def reset_env(
     
     _env = VeloraEnv(task=task_name, seed=seed_val)
     obs = _env.reset()
-    return obs
+    return ResetResponse(observation=obs, info={})
 
 
 @app.post("/step", response_model=StepResponse)
 def step_env(action: Action):
-    """Take one step in the environment."""
+    """
+    Take one step in the environment.
+    
+    Returns standard OpenEnv format:
+    {
+        "observation": {...},
+        "reward": float,
+        "done": bool,
+        "info": {}
+    }
+    """
     env = _get_env()
     try:
         obs, reward, done, info = env.step(action)
@@ -141,7 +163,6 @@ def step_env(action: Action):
     return StepResponse(
         observation=obs,
         reward=float(reward.total),
-        reward_info=reward.model_dump(),
         done=done,
         info=info,
     )

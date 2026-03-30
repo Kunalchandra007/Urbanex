@@ -7,8 +7,9 @@ BASE_URL = os.getenv("SPACE_URL", "http://localhost:7860")
 def run_inference(task: str = "easy", seed: int = 42):
     client = httpx.Client(base_url=BASE_URL, timeout=30)
 
-    # Reset
-    obs = client.post("/reset", json={"task": task, "seed": seed}).json()
+    # Reset — extracts observation from wrapped response
+    reset_response = client.post("/reset", json={"task": task, "seed": seed}).json()
+    obs = reset_response["observation"]
 
     trajectory = []
     done = False
@@ -49,17 +50,17 @@ def run_inference(task: str = "easy", seed: int = 42):
                 # Route is clean — keep going
                 action = {"action_type": "continue"}
 
-        result = client.post("/step", json=action).json()
+        step_response = client.post("/step", json=action).json()
 
-        # Append POST-step observation (matches baseline_agent.py behaviour)
-        next_obs = result["observation"]
+        # Extract observation from wrapped response
+        next_obs = step_response["observation"]
         trajectory.append({
             "obs": next_obs,     # ← post-step obs, so episode_done is correct
             "action": action,
-            "reward": result["reward"],
+            "reward": step_response["reward"],
         })
         obs = next_obs
-        done = result["done"]
+        done = step_response["done"]
         step += 1
 
     # Grade
