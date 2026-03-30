@@ -105,6 +105,12 @@ GRADER_MAP = {
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/health")
+def health():
+    """Standard OpenEnv health check endpoint."""
+    return {"status": "ok"}
+
+
 @app.post("/reset", response_model=ResetResponse)
 def reset_env(
     request: Optional[ResetRequest] = Body(default=None),
