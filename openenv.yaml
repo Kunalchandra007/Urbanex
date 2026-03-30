@@ -25,13 +25,88 @@ tasks:
     description: Navigate a changing city with dynamic incidents and traffic
 action_space:
   type: discrete-structured
-  actions: [select_route, reroute, report_incident, continue, stop]
+  actions:
+    - select_route
+    - reroute
+    - report_incident
+    - continue
+    - stop
 observation_space:
   type: structured
-  fields: [step, current_location, destination, available_routes, active_incidents,
-           traffic_level, weather, current_route, distance_remaining_km, episode_done]
+  fields:
+    - name: step
+      type: integer
+      description: Current step number
+    - name: current_location
+      type: array
+      items:
+        type: number
+      description: Current location as [lat, lng]
+    - name: destination
+      type: array
+      items:
+        type: number
+      description: Destination as [lat, lng]
+    - name: available_routes
+      type: array
+      items:
+        type: object
+        properties:
+          route_id:
+            type: string
+          estimated_time_min:
+            type: number
+          incident_count:
+            type: integer
+          fuel_cost_score:
+            type: number
+          safety_score:
+            type: number
+          hidden_risk_prob:
+            type: number
+      description: List of available route options
+    - name: active_incidents
+      type: array
+      items:
+        type: object
+        properties:
+          incident_id:
+            type: string
+          type:
+            type: string
+          severity:
+            type: string
+          lat:
+            type: number
+          lng:
+            type: number
+          affects_routes:
+            type: array
+            items:
+              type: string
+      description: List of active incidents
+    - name: traffic_level
+      type: string
+      enum: [low, medium, high]
+      description: Current traffic level
+    - name: weather
+      type: string
+      enum: [clear, rain, fog]
+      description: Current weather condition
+    - name: current_route
+      type: string
+      nullable: true
+      description: Currently selected route_id or null
+    - name: distance_remaining_km
+      type: number
+      description: Distance remaining to destination in km
+    - name: episode_done
+      type: boolean
+      description: Whether episode is finished
 reward_range: [-1.0, 1.0]
 endpoints:
+  health: GET /health
+  root: GET /
   reset: POST /reset
   step: POST /step
   state: GET /state
