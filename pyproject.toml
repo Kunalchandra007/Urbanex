@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "URBANEX — Urban Exploration RL environment for Bangalore city navigation"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi==0.111.0",
+    "fastapi-slim==0.111.0",
     "uvicorn==0.29.0",
     "pydantic==2.7.1",
     "openai==1.30.1",
@@ -21,10 +21,6 @@ dev = [
     "pytest==8.2.0",
     "pytest-asyncio==0.23.0",
 ]
-
-[project.scripts]
-urbanex = "api.server:app"
-urbanex-server = "api.server:app"
 
 [tool.setuptools.packages.find]
 where = ["."]
