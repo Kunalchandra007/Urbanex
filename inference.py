@@ -18,26 +18,50 @@ openai_client = OpenAI(
 def llm_decide_action(obs: dict) -> dict:
     """Use LLM to decide the next action based on observation."""
     try:
-        prompt = f"""You are a smart navigation agent for city routing. Analyze this observation and decide the best action.
+        # Enhanced prompt for better hard task performance
+        available_routes = obs.get('available_routes', [])
+        active_incidents = obs.get('active_incidents', [])
+        current_route = obs.get('current_route')
+        distance_remaining = obs.get('distance_remaining_km', 0)
+        
+        # Analyze route incident severity
+        route_summaries = []
+        for route in available_routes:
+            incident_count = route.get('incident_count', 0)
+            route_summaries.append(f"{route['route_id']}: {route.get('estimated_time_min', 0)} min, {incident_count} incidents, safety={route.get('safety_score', 0):.2f}")
+        
+        # Check current route risk
+        current_risk = "LOW"
+        if current_route:
+            route_incidents = [i for i in active_incidents if current_route in i.get('affects_routes', [])]
+            high_sev = [i for i in route_incidents if i.get('severity') == 'high']
+            if high_sev:
+                current_risk = f"HIGH ({len(high_sev)} high-severity incidents)"
+            elif route_incidents:
+                current_risk = f"MEDIUM ({len(route_incidents)} incidents)"
+        
+        prompt = f"""You are an expert routing algorithm for urban navigation. MAXIMIZE safety and efficiency.
 
-Observation:
-- Current step: {obs.get('step')}
-- Current location: {obs.get('current_location')}
-- Destination: {obs.get('destination')}
-- Current route: {obs.get('current_route')}
-- Available routes: {len(obs.get('available_routes', []))} options
-- Active incidents: {len(obs.get('active_incidents', []))} incidents
-- Traffic level: {obs.get('traffic_level')}
-- Distance remaining: {obs.get('distance_remaining_km')} km
-- Episode done: {obs.get('episode_done')}
+CURRENT STATE:
+- Step: {obs.get('step')} (distance remaining: {distance_remaining} km)
+- Current route: {current_route if current_route else 'NOT SELECTED'}
+- Current route risk: {current_risk}
+- Available routes: {'; '.join(route_summaries)}
+- Active incidents: {len(active_incidents)} total
 
-If no route is selected yet, pick the safest route with lowest incidents.
-If on a route with high-severity incidents, reroute to a clean route.
-Otherwise, continue on the current route.
-If destination reached or no distance remaining, stop.
+PRIORITY RULES (in order):
+1. SAFETY FIRST: Avoid high-severity incidents at all costs
+2. If on dangerous route (high-severity incidents): REROUTE to safest alternative immediately
+3. If no route selected: Pick SAFEST route (highest safety_score), break ties by time
+4. If route is safe: CONTINUE (don't waste steps on redundant selection)
+5. If destination reached: STOP
 
-Respond with ONLY valid JSON (no markdown, no extra text):
-{{"action_type": "select_route|continue|reroute|stop", "route_id": "optional_route_id"}}"""
+RESPONSE: Select ONE action. Reply with ONLY valid JSON:
+{{"action_type": "select_route|continue|reroute|stop", "route_id": "fastest|safe|eco|null"}}
+
+Think step-by-step:
+- Safety > Time > Fuel
+- Avoid incidents > Continue safe → Select once, continue until unsafe """
 
         response = openai_client.chat.completions.create(
             model=MODEL_NAME,
@@ -137,10 +161,16 @@ def run_inference(task: str = "easy", seed: int = 42):
     ).json()
     score = score_result.get("score", 0.0)
 
-    print(f"Task: {task} | Steps: {step} | Score: {score}")
     return {"task": task, "score": score, "steps": step}
 
 
 if __name__ == "__main__":
+    results = []
     for task in ["easy", "medium", "hard"]:
-        run_inference(task=task)
+        result = run_inference(task=task)
+        results.append(result)
+        # Print human-readable log for debugging
+        print(f"Task: {task} | Steps: {result['steps']} | Score: {result['score']}")
+    
+    # Output JSON for validator to parse
+    print("\n" + json.dumps(results, indent=2))
