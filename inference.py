@@ -1,24 +1,24 @@
 import os
 import json
 import httpx
-from openai import OpenAI
 
 BASE_URL = os.getenv("SPACE_URL", "http://localhost:7860")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.1")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
-# Initialize OpenAI client with API_BASE_URL, MODEL_NAME, HF_TOKEN support
-openai_client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=HF_TOKEN or os.getenv("OPENAI_API_KEY", "sk-dummy")
-)
+# HuggingFace Inference API URL
+HF_API_URL = "https://api-inference.huggingface.co/models"
+
+# Check if HF token is available for LLM calls
+llm_available = bool(HF_TOKEN and HF_TOKEN.strip())
 
 
 def llm_decide_action(obs: dict) -> dict:
-    """Use LLM to decide the next action based on observation."""
+    """Use HuggingFace Inference API to decide the next action."""
+    if not llm_available:
+        return _fallback_decide_action(obs)
+    
     try:
-        # Enhanced prompt for better hard task performance
         available_routes = obs.get('available_routes', [])
         active_incidents = obs.get('active_incidents', [])
         current_route = obs.get('current_route')
@@ -51,7 +51,7 @@ CURRENT STATE:
 
 PRIORITY RULES (in order):
 1. SAFETY FIRST: Avoid high-severity incidents at all costs
-2. If on dangerous route (high-severity incidents): REROUTE to safest alternative immediately
+2. If on dangerous route: REROUTE to safest alternative immediately
 3. If no route selected: Pick SAFEST route (highest safety_score), break ties by time
 4. If route is safe: CONTINUE (don't waste steps on redundant selection)
 5. If destination reached: STOP
@@ -59,31 +59,47 @@ PRIORITY RULES (in order):
 RESPONSE: Select ONE action. Reply with ONLY valid JSON:
 {{"action_type": "select_route|continue|reroute|stop", "route_id": "fastest|safe|eco|null"}}
 
-Think step-by-step:
-- Safety > Time > Fuel
-- Avoid incidents > Continue safe → Select once, continue until unsafe """
+Think step-by-step: Safety > Time > Fuel. Avoid incidents > Continue safe → Select once."""
 
-        response = openai_client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=100,
-            temperature=0.1
+        # Call HuggingFace Inference API
+        headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 100,
+                "temperature": 0.1,
+                "do_sample": False
+            }
+        }
+        
+        response = httpx.post(
+            f"{HF_API_URL}/{MODEL_NAME}",
+            json=payload,
+            headers=headers,
+            timeout=15
         )
         
-        # Parse LLM response
-        content = response.choices[0].message.content.strip()
-        # Remove markdown code blocks if present
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-            content = content.strip()
+        if response.status_code == 200:
+            result = response.json()
+            # Extract text from HF response
+            if isinstance(result, list) and len(result) > 0:
+                content = result[0].get("generated_text", "")
+            else:
+                content = str(result)
+            
+            # Extract JSON from response
+            if "{" in content and "}" in content:
+                json_start = content.rfind("{")
+                json_end = content.rfind("}") + 1
+                json_str = content[json_start:json_end]
+                action = json.loads(json_str)
+                return action
         
-        action = json.loads(content)
-        return action
+        # If HF API call failed, use fallback
+        return _fallback_decide_action(obs)
+        
     except Exception as e:
-        # Fallback: use simple heuristics if LLM fails
-        print(f"LLM decision failed ({e}), using fallback heuristic")
+        print(f"[INFO] LLM decision failed ({type(e).__name__}), using fallback heuristic")
         return _fallback_decide_action(obs)
 
 
