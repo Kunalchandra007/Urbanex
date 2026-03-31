@@ -88,41 +88,61 @@ Think step-by-step:
 
 
 def _fallback_decide_action(obs: dict) -> dict:
-    """Fallback rule-based decision when LLM is unavailable."""
+    """Fallback rule-based decision when LLM is unavailable.
+    Enhanced for hard task: dynamic_rerouting."""
     current_route = obs.get("current_route")
     routes = obs.get("available_routes", [])
     incidents = obs.get("active_incidents", [])
     distance = obs.get("distance_remaining_km", 0)
+    step = obs.get("step", 0)
     
     # If destination reached
     if distance <= 0 or obs.get("episode_done"):
         return {"action_type": "stop"}
     
-    # No route selected yet
+    # No route selected yet - pick safest
     if current_route is None:
         if not routes:
             return {"action_type": "continue"}
-        # Pick safest+fastest clean route
+        # For hard task: prioritize safety heavily
+        # Sort by: incident_count (ascending), then safety_score (descending)
         clean = [r for r in routes if r.get("incident_count", 0) == 0]
-        pool = clean if clean else routes
-        best = min(pool, key=lambda r: r.get("estimated_time_min", 999))
+        if clean:
+            best = max(clean, key=lambda r: r.get("safety_score", 0))
+        else:
+            # No clean route - pick lowest incident count, highest safety
+            sorted_routes = sorted(
+                routes,
+                key=lambda r: (r.get("incident_count", 999), -r.get("safety_score", 0))
+            )
+            best = sorted_routes[0]
         return {"action_type": "select_route", "route_id": best["route_id"]}
     
-    # Check for high-severity incidents on current route
+    # Check for incidents on current route
     route_incidents = [
         i for i in incidents
         if current_route in i.get("affects_routes", [])
     ]
     high_sev = [i for i in route_incidents if i.get("severity") == "high"]
     
-    if high_sev:
-        # Reroute to cleanest option
-        clean = [r for r in routes if r.get("incident_count", 0) == 0]
-        if clean and clean[0]["route_id"] != current_route:
-            best = min(clean, key=lambda r: r.get("estimated_time_min", 999))
+    # Hard task: be aggressive about rerouting on ANY incident
+    if high_sev or (len(route_incidents) > 0 and step > 2):
+        # Look for clean routes or safest alternative
+        clean = [r for r in routes if r.get("incident_count", 0) == 0 and r["route_id"] != current_route]
+        if clean:
+            best = max(clean, key=lambda r: r.get("safety_score", 0))
+            return {"action_type": "reroute", "route_id": best["route_id"]}
+        
+        # No clean route - pick highest safety among alternatives
+        alternatives = [r for r in routes if r["route_id"] != current_route]
+        if alternatives:
+            best = max(alternatives, key=lambda r: (
+                -r.get("incident_count", 0),
+                r.get("safety_score", 0)
+            ))
             return {"action_type": "reroute", "route_id": best["route_id"]}
     
-    # Route is clean — keep going
+    # Route is safe — continue
     return {"action_type": "continue"}
 
 
