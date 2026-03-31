@@ -1,7 +1,7 @@
 """
 URBANEX models — OpenEnv-compliant data types.
 
-This package provides all Pydantic models for the URBANEX environment.
+These extend openenv.core base types for full SDK compatibility.
 """
 
 from typing import List, Optional, Literal
@@ -73,20 +73,10 @@ class Reward(BaseModel):
     reason: str = Field(default="", description="Reward reason/explanation")
 
 
-# Legacy imports for backward compatibility
-from .observation import Observation as LegacyObservation
-from .action import Action as LegacyAction
-
-
 __all__ = [
-    # New OpenEnv types
     "UrbanexAction",
     "UrbanexObservation",
     "RouteOption",
     "Incident",
     "Reward",
-    # Legacy types (for old code)
-    "LegacyObservation",
-    "LegacyAction",
 ]
-
