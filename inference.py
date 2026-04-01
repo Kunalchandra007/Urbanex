@@ -1,20 +1,27 @@
 import os
 import json
 import httpx
+from openai import OpenAI
 
-BASE_URL = os.getenv("SPACE_URL", "http://localhost:7860")
-MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.1")
+SPACE_URL = os.getenv("SPACE_URL", "http://localhost:7860")
+
+# HuggingFace Inference API (OpenAI-compatible, FREE)
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.3")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
-# HuggingFace Inference API URL
-HF_API_URL = "https://api-inference.huggingface.co/models"
+# Initialize OpenAI client pointing to HF API
+openai_client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=HF_TOKEN if HF_TOKEN else "hf_dummy"  # Will fail if token not set, that's intentional
+)
 
 # Check if HF token is available for LLM calls
 llm_available = bool(HF_TOKEN and HF_TOKEN.strip())
 
 
 def llm_decide_action(obs: dict) -> dict:
-    """Use HuggingFace Inference API to decide the next action."""
+    """Use HuggingFace Inference API (OpenAI-compatible) to decide the next action."""
     if not llm_available:
         return _fallback_decide_action(obs)
     
@@ -61,41 +68,28 @@ RESPONSE: Select ONE action. Reply with ONLY valid JSON:
 
 Think step-by-step: Safety > Time > Fuel. Avoid incidents > Continue safe → Select once."""
 
-        # Call HuggingFace Inference API
-        headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": 100,
-                "temperature": 0.1,
-                "do_sample": False
-            }
-        }
-        
-        response = httpx.post(
-            f"{HF_API_URL}/{MODEL_NAME}",
-            json=payload,
-            headers=headers,
-            timeout=15
+        # Call HuggingFace Inference API via OpenAI-compatible endpoint
+        response = openai_client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=100,
+            temperature=0.1
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            # Extract text from HF response
-            if isinstance(result, list) and len(result) > 0:
-                content = result[0].get("generated_text", "")
-            else:
-                content = str(result)
-            
-            # Extract JSON from response
-            if "{" in content and "}" in content:
-                json_start = content.rfind("{")
-                json_end = content.rfind("}") + 1
-                json_str = content[json_start:json_end]
-                action = json.loads(json_str)
-                return action
+        # Extract response text
+        content = response.choices[0].message.content.strip()
         
-        # If HF API call failed, use fallback
+        # Extract JSON from response (in case there's extra text)
+        if "{" in content and "}" in content:
+            json_start = content.rfind("{")
+            json_end = content.rfind("}") + 1
+            json_str = content[json_start:json_end]
+            action = json.loads(json_str)
+            return action
+        
+        # If no JSON found, use fallback
         return _fallback_decide_action(obs)
         
     except Exception as e:
@@ -163,7 +157,7 @@ def _fallback_decide_action(obs: dict) -> dict:
 
 
 def run_inference(task: str = "easy", seed: int = 42):
-    client = httpx.Client(base_url=BASE_URL, timeout=30)
+    client = httpx.Client(base_url=SPACE_URL, timeout=30)
 
     # Reset — extracts observation from wrapped response
     reset_response = client.post("/reset", json={"task": task, "seed": seed}).json()
