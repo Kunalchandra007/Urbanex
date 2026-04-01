@@ -13,186 +13,341 @@ tags:
   - simulation
 ---
 
-# URBANEX — Urban Exploration RL Environment
+# URBANEX
 
-> **URBANEX** = **Urban** + **Exploration** — a double meaning by design.  
-> *Exploring a city's road network* AND *the core RL explore-vs-exploit dilemma* that every agent must solve navigating it.  
-> Sounds like a product. Because it is one.
+URBANEX is an urban navigation reinforcement learning environment where an agent acts like a smart routing assistant for Bangalore. It must choose between `fastest`, `safe`, and `eco` routes while reacting to traffic incidents, hidden risks, weather shifts, and changing traffic conditions.
 
-> *Bangalore has over 12 million residents, 8 million registered vehicles, and a pothole every 50 meters. Getting from point A to B sounds simple. For an AI agent, it's a minefield.*
+The project was built for the Meta + Hugging Face + PyTorch OpenEnv hackathon and is designed to work both as:
 
-## What this environment models
+- a local FastAPI environment for testing and development
+- a Dockerized Hugging Face Space
+- an OpenEnv-compatible environment with a standalone `inference.py`
 
-Velora simulates urban navigation decision-making over a graph of Bangalore's real road network. An AI agent receives structured observations about road conditions — potholes, accidents, flooding, construction — and must choose from three route types to reach a destination both safely and efficiently.
+## Why this project is interesting
 
-The twist: **not everything is visible**. Every route carries a `hidden_risk_prob` — the probability that an undetected incident is lurking. A greedy agent that always picks the fastest route will get burned by a hidden accident two steps in. A cautious agent that reroutes at every shadow will be penalized for indecision. The optimal agent reasons under uncertainty.
+URBANEX is not just shortest-path routing. The agent has to reason under uncertainty.
 
-## Why this domain matters for AI agents
+- Some hazards are visible: potholes, accidents, flooding, and construction.
+- Some hazards are hidden: each route exposes a `hidden_risk_prob` but not the exact future incident.
+- Rewards are multi-objective: safety, time, and fuel efficiency all matter.
+- Hard mode is dynamic: incidents spawn during the episode and traffic/weather conditions change mid-run.
 
-Modern LLMs are being evaluated on real-world agentic tasks. Urban routing is:
-- **Multi-objective**: minimize time AND maximize safety AND save fuel — simultaneously
-- **Partially observable**: not all hazards are reported; sensors lie; reports are delayed
-- **Non-stationary**: traffic escalates mid-journey; rain starts at step 7; new incidents spawn
-- **Consequential**: a single wrong route choice causes a penalty 2 steps later
+That makes the environment a good benchmark for planning, risk tradeoffs, and adaptive decision-making.
 
-This makes Velora a natural test of chain-of-thought reasoning, risk calibration, and adaptive planning.
+## Core idea
 
-## Action space
+Each episode follows the usual RL loop:
 
-| action_type | Parameters | Description |
-|-------------|------------|-------------|
-| `select_route` | `route_id` | Choose a route to follow at episode start |
-| `reroute` | `route_id` | Switch route mid-journey (triggers recovery bonus if safer) |
-| `report_incident` | `incident_type`, `incident_lat`, `incident_lng` | Report an incident (rewarded if real, penalized if false) |
-| `continue` | — | Stay on current route (penalized if hidden risk is high) |
-| `stop` | — | Abandon journey (−1.0 penalty) |
+1. The environment returns an observation.
+2. The agent chooses an action.
+3. The environment advances one step.
+4. It returns a new observation, a scalar reward, and a `done` flag.
 
-## Observation space
+In URBANEX:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `step` | int | Current episode step |
-| `current_location` | [float, float] | Agent lat/lng |
-| `destination` | [float, float] | Target lat/lng |
-| `available_routes` | List[RouteOption] | fastest / safe / eco with time, safety, fuel, **hidden_risk_prob** |
-| `active_incidents` | List[Incident] | Visible incidents (pothole, accident, flooding, construction) |
-| `traffic_level` | str | "low" / "medium" / "high" (changes dynamically in hard task) |
-| `weather` | str | "clear" / "rain" / "fog" (changes mid-episode in hard task) |
-| `current_route` | Optional[str] | Currently selected route |
-| `distance_remaining_km` | float | Haversine distance to destination |
-| `episode_done` | bool | Terminal state flag |
-
-**Key partial observability field**: `hidden_risk_prob` on each `RouteOption`. The agent sees the probability of a lurking incident but never knows exactly what it is or when it fires. The consequence arrives 2 steps later as a reward penalty.
-
-## Reward function
-
-| Event | Reward | Reason |
-|-------|--------|--------|
-| Reached destination | +1.0 × weights | Primary goal |
-| Safe route chosen with incidents present | +0.3 × safety_w | Proactive risk avoidance |
-| Recovery reroute (moved to lower-risk route) | +0.25 × safety_w | Adaptive replanning bonus |
-| Progress toward destination | +0.1 × time_w | Dense step signal |
-| Eco route chosen | +0.15 × fuel_w | Fuel efficiency |
-| High hidden risk on chosen route | −0.4 × hidden_risk × safety_w | Risk exposure |
-| High-severity incident on chosen route | −0.5 to −0.8 | Safety penalty |
-| Continuing on risky route | −0.15 × safety_w × risk | Sustained exposure |
-| Indecision (route switch every step) | −0.25 × safety_w | Decision instability |
-| Unnecessary reroute | −0.3 | Efficiency penalty |
-| Delayed hidden incident fires | −`penalty` (arrives 2 steps later) | Consequence of bad choice |
-| Stop before destination | −1.0 | Episode failure |
-
-Per-step total is clamped to [−1.0, 1.0]. Episode total is not clamped.
+- Observation includes current location, destination, available routes, active incidents, traffic, weather, current route, and remaining distance.
+- Actions include `select_route`, `reroute`, `continue`, `report_incident`, and `stop`.
+- Rewards favor safe and efficient progress while penalizing risky or unstable decisions.
 
 ## Tasks
 
-### Easy — reach_destination
-- **Goal**: Reach destination within 35 minutes
-- **City state**: No incidents, low traffic, clear weather, low hidden risk (scale 0.10)
-- **Max steps**: 10
-- **Designed for**: Agents that can follow a basic route
-- **Reward weights**: safety 0.3, time 0.5, fuel 0.2
+| Task | Goal | What makes it hard |
+|------|------|--------------------|
+| `easy` | Reach destination in a clean city | Straightforward routing |
+| `medium` | Reach destination while avoiding incidents | Hidden-risk greedy trap |
+| `hard` | Reach destination while the city changes around you | Dynamic incidents, traffic escalation, weather changes |
 
-### Medium — avoid_and_optimize
-- **Goal**: Reach destination while avoiding 3 pre-placed incidents on the fastest route
-- **Greedy trap**: Fastest route appears clear at step 0 but a hidden accident fires at step 2 — agents that don't reason about `hidden_risk_prob` are punished
-- **City state**: Medium traffic, clear weather, hidden risk scale 0.45
-- **Max steps**: 15
-- **Reward weights**: safety 0.5, time 0.3, fuel 0.2
+## Project architecture
 
-### Hard — dynamic_rerouting
-- **Goal**: Reach destination as the city changes around you
-- **Dynamic events**: 6 incident spawns (steps 2, 4, 6, 9, 12, 15) — 70% biased on fastest
-- **Two-stage traffic**: low → medium at step 5 → high at step 10
-- **Two-stage weather**: clear → rain at step 7 → fog at step 13
-- **Pre-placed**: 2 incidents (flooding on eco, construction on fastest) from the start
-- **Max steps**: 18 (tight)
-- **Success condition**: Reach destination **and** maintain avg safety score > 0.6
-- **Reward weights**: safety 0.5, time 0.3, fuel 0.2
-
-### Example episode walkthrough (Hard task)
+```text
+URBANEX/
+├── api/
+│   └── server.py
+├── baseline/
+│   ├── baseline_agent.py
+│   └── visualizer.py
+├── environment/
+│   ├── city.py
+│   ├── incidents.py
+│   ├── rewards.py
+│   ├── routes.py
+│   └── velora_env.py
+├── graders/
+│   ├── grader_easy.py
+│   ├── grader_medium.py
+│   └── grader_hard.py
+├── models/
+│   ├── __init__.py
+│   ├── action.py
+│   ├── observation.py
+│   └── reward.py
+├── server/
+│   ├── __init__.py
+│   ├── app.py
+│   └── urbanex_environment.py
+├── tasks/
+│   ├── task_easy.py
+│   ├── task_medium.py
+│   └── task_hard.py
+├── tests/
+│   ├── test_env.py
+│   └── test_graders.py
+├── client.py
+├── Dockerfile
+├── inference.py
+├── models.py
+├── openenv.yaml
+├── pyproject.toml
+├── requirements.txt
+├── run.py
+└── uv.lock
 ```
-Step 01 | SELECT [S] safe       | [#####.....] +0.149 | 2 inc | 5.17km | SUN/TLO
-Step 02 | CONT   [S] safe       | [#####.....] +0.030 | 3 inc | 3.62km | SUN/TLO  ← incident spawns
-Step 04 | CONT   [S] safe       | [#####.....] +0.030 | 4 inc | 1.77km | SUN/TLO
-Step 05 | CONT   [S] safe       | [#####.....] +0.030 | 4 inc | 1.24km | SUN/TMD  ← traffic: medium
-Step 07 | CONT   [S] safe       | [#####.....] +0.030 | 4 inc | 0.61km | RAN/TMD  ← weather: rain
-Step 08 | CONT   [S] safe       | [##########] +1.000 | 3 inc | 0.43km | RAN/TMD  ← destination!
->> REACHED DESTINATION  |  Grader Score: 0.7000
-```
-A frontier LLM agent that greedily picks `fastest` will trigger the construction incident penalty and get hit by 4+ dynamic spawns without rerouting — expected score: ~0.3.
 
-## Setup
+### Key files
 
-### Local
+- `environment/velora_env.py`
+  Main environment loop. Handles reset, step progression, delayed hidden penalties, and done conditions.
+- `environment/routes.py`
+  Generates the route options an agent can choose from.
+- `environment/incidents.py`
+  Creates and manages visible incidents.
+- `environment/rewards.py`
+  Computes the scalar reward and reward breakdown.
+- `api/server.py`
+  FastAPI app exposing HTTP endpoints and WebSocket support.
+- `server/app.py`
+  Standard OpenEnv-style entry point used by `openenv validate`.
+- `inference.py`
+  Standalone agent script expected by the hackathon validator.
+
+## API surface
+
+### HTTP endpoints
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `POST` | `/reset` | Start an episode |
+| `POST` | `/step` | Apply one action |
+| `GET` | `/state` | Inspect environment state |
+| `GET` | `/tasks` | List tasks and action schema |
+| `POST` | `/grader` | Score a trajectory |
+| `POST` | `/baseline` | Run the built-in baseline |
+| `GET` | `/health` | Health endpoint |
+| `GET` | `/metadata` | OpenEnv metadata |
+| `GET` | `/schema` | Action/observation/state schemas |
+| `POST` | `/mcp` | JSON-RPC-compatible stub response |
+
+### WebSocket endpoint
+
+`/ws` supports:
+
+- OpenEnv-style messages using `{"type": "...", "data": {...}}`
+- older internal/local test message shapes for backward compatibility
+
+## Example observation
+
+An observation includes fields like:
+
+- `step`
+- `current_location`
+- `destination`
+- `available_routes`
+- `active_incidents`
+- `traffic_level`
+- `weather`
+- `current_route`
+- `distance_remaining_km`
+- `episode_done`
+
+Each route option includes:
+
+- `route_id`
+- `estimated_time_min`
+- `incident_count`
+- `fuel_cost_score`
+- `safety_score`
+- `hidden_risk_prob`
+
+## Reward design
+
+The reward system encourages:
+
+- reaching the destination
+- choosing safer routes when incidents are present
+- making progress consistently
+- fuel efficiency when appropriate
+
+It penalizes:
+
+- staying on risky routes
+- high-severity incident exposure
+- indecisive rerouting
+- stopping early
+- delayed consequences from hidden risk
+
+Per-step rewards are clamped to `[-1.0, 1.0]`.
+
+## Inference pipeline
+
+The hackathon expects a root-level `inference.py`, and this project provides one.
+
+It does three important things:
+
+1. Talks to the running environment through `SPACE_URL`
+2. Uses the OpenAI Python client for LLM calls
+3. Falls back to deterministic heuristics when the remote LLM is unavailable
+
+### Environment variables used by `inference.py`
+
+| Variable | Purpose |
+|----------|---------|
+| `SPACE_URL` | Base URL for the running environment |
+| `API_BASE_URL` | OpenAI-compatible LLM endpoint |
+| `MODEL_NAME` | Model identifier |
+| `HF_TOKEN` | API token |
+
+### Current default model path
+
+The inference script currently uses Hugging Face's OpenAI-compatible API by default:
+
+- `API_BASE_URL=https://api-inference.huggingface.co/v1`
+- `MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3`
+
+This still satisfies the important validator requirement because the code uses the `OpenAI(...)` client interface.
+
+## Local development
+
+### Install
+
 ```bash
-cd C:\Projects\URBANEX
 pip install -r requirements.txt
+```
 
-# Start server
+### Run the API locally
+
+```bash
 python run.py
-# OR: uvicorn api.server:app --host 0.0.0.0 --port 7860 --reload
 ```
 
-Run tests:
+or
+
 ```bash
-python -m pytest tests/ -v
+uvicorn api.server:app --host 0.0.0.0 --port 7860
 ```
 
-Run baseline with visual episode log:
+### Run tests
+
 ```bash
-python baseline/baseline_agent.py hard rule_based
-# Set VELORA_RENDER=1 to print step-by-step table
+pytest -q tests
 ```
 
-### Docker
+### Run OpenEnv validation
+
+```bash
+openenv validate
+```
+
+### Run inference locally against the local server
+
+```bash
+set SPACE_URL=http://localhost:7860
+python inference.py
+```
+
+On PowerShell:
+
+```powershell
+$env:SPACE_URL="http://localhost:7860"
+python inference.py
+```
+
+## Docker
+
+Build:
+
 ```bash
 docker build -t urbanex .
+```
+
+Run:
+
+```bash
 docker run -p 7860:7860 urbanex
 ```
 
-Test endpoints after build:
+The Docker image starts:
+
 ```bash
-curl -X POST http://localhost:7860/reset -H "Content-Type: application/json" -d '{"task":"easy","seed":42}'
-curl http://localhost:7860/tasks
-curl http://localhost:7860/state
-curl -X POST http://localhost:7860/baseline -H "Content-Type: application/json" -d '{"task":"easy"}'
+uvicorn api.server:app --host 0.0.0.0 --port 7860
 ```
 
-### Hugging Face Spaces
-```bash
-cd C:\Projects\URBANEX
-git init
-git add .
-git commit -m "initial: URBANEX OpenEnv environment"
-git remote add hf https://huggingface.co/spaces/YOUR_HF_USERNAME/urbanex
-git push hf main
-```
-Once the Space shows **Running** (green badge), test:
-```bash
-curl -X POST https://YOUR_HF_USERNAME-urbanex.hf.space/reset \
-  -H "Content-Type: application/json" \
-  -d '{"task":"easy","seed":42}'
-```
+## Hugging Face Space
 
-## Baseline scores
+Repository target:
 
-| Task | Agent | Score | Notes |
-|------|-------|-------|-------|
-| easy | rule_based | 1.00 | Clean city, straightforward |
-| medium | rule_based | 1.00 | Smart agent avoids greedy trap |
-| hard | rule_based | 0.70 | Partial adaptation to dynamics |
+- Space URL: `https://huggingface.co/spaces/kunalchandra007/urbanexx`
 
-*A naive LLM agent (greedy-fastest picker) is expected to score: easy ~0.90, medium ~0.60, hard ~0.30.*
+Runtime URL:
 
-*(All scores deterministic with seed=42. Run `baseline/baseline_agent.py` to reproduce.)*
+- `https://kunalchandra007-urbanexx.hf.space`
 
-## API reference
+Suggested Space secrets:
 
-| Method | Endpoint | Body | Returns |
-|--------|----------|------|---------|
-| `POST` | `/reset` | `{task, seed}` | `Observation` |
-| `POST` | `/step` | `Action` | `{observation, reward, done, info}` |
-| `GET` | `/state` | — | Full internal state dict |
-| `GET` | `/tasks` | — | Task definitions + action schema |
-| `POST` | `/grader` | `{task, trajectory}` | `{score, breakdown}` |
-| `POST` | `/baseline` | `{task, agent, seed}` | `{task, score, steps, total_reward}` |
+| Secret | Value |
+|--------|-------|
+| `API_BASE_URL` | `https://api-inference.huggingface.co/v1` |
+| `MODEL_NAME` | `mistralai/Mistral-7B-Instruct-v0.3` |
+| `HF_TOKEN` | your Hugging Face token |
+
+## Validation notes
+
+The repo is set up to satisfy the local OpenEnv structural validation:
+
+- `openenv.yaml` exists
+- `server/app.py` exists
+- `uv.lock` exists
+- `[project.scripts].server` exists in `pyproject.toml`
+- root-level `inference.py` exists
+
+The project also includes compatibility paths for:
+
+- `client.UrbanexEnv`
+- `models.Action`
+- `models.Observation`
+
+## Baseline and grading
+
+The repo includes:
+
+- a local baseline agent in `baseline/baseline_agent.py`
+- task-specific graders in `graders/`
+
+This makes it easy to compare:
+
+- environment rollout behavior
+- heuristic agent behavior
+- LLM-driven behavior
+
+## Why the repo is organized this way
+
+The split between `environment/`, `api/`, `server/`, `models/`, `graders/`, and `tasks/` keeps the project easy to reason about:
+
+- `environment/` contains the simulation logic
+- `api/` contains the serving layer
+- `server/` contains OpenEnv-oriented wrappers and entry points
+- `models/` contains schemas
+- `tasks/` contains difficulty configuration
+- `graders/` contains scoring
+
+That makes the codebase easier to test, deploy, and extend.
+
+## Status
+
+URBANEX is currently set up as:
+
+- a local FastAPI environment
+- a Dockerized deployment target
+- an OpenEnv-compatible submission layout
+- a root-level LLM inference script using the OpenAI client
+
+If you want a deeper internal walkthrough, see `urbanex_deep_dive.md`.
