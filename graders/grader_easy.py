@@ -14,6 +14,14 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
 
 
+def _finalize_score(value: float) -> float:
+    """
+    OpenEnv hackathon validator expects task scores to be strictly inside (0, 1),
+    not equal to the boundaries.
+    """
+    return round(_clamp(value, 0.0001, 0.9999), 4)
+
+
 def grade(trajectory: List[dict]) -> float:
     """
     Grade an episode trajectory for the easy task.
@@ -51,7 +59,7 @@ def grade(trajectory: List[dict]) -> float:
         # Partial credit: deduct per unnecessary action
         score += max(0.0, 0.20 - 0.05 * (unnecessary_actions + stop_actions))
 
-    return round(_clamp(score), 4)
+    return _finalize_score(score)
 
 
 def _was_stopped(trajectory: List[dict]) -> bool:

@@ -12,6 +12,14 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
 
 
+def _finalize_score(value: float) -> float:
+    """
+    OpenEnv hackathon validator expects task scores to be strictly inside (0, 1),
+    not equal to the boundaries.
+    """
+    return round(_clamp(value, 0.0001, 0.9999), 4)
+
+
 def grade(trajectory: List[dict]) -> float:
     """
     +0.5  if destination reached
@@ -70,7 +78,7 @@ def grade(trajectory: List[dict]) -> float:
     if efficiency_ratio > 2.0:
         score -= 0.10
 
-    return round(_clamp(score), 4)
+    return _finalize_score(score)
 
 
 def _count_high_severity_encountered(trajectory: List[dict]) -> int:
