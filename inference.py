@@ -159,6 +159,8 @@ def _fallback_decide_action(obs: dict) -> dict:
 def run_inference(task: str = "easy", seed: int = 42):
     client = httpx.Client(base_url=SPACE_URL, timeout=30)
 
+    print(f"[START] task={task}", flush=True)
+
     # Reset — extracts observation from wrapped response
     reset_response = client.post("/reset", json={"task": task, "seed": seed}).json()
     obs = reset_response["observation"]
@@ -166,6 +168,7 @@ def run_inference(task: str = "easy", seed: int = 42):
     trajectory = []
     done = False
     step = 0
+    total_reward = 0.0
 
     while not done and step < 20:
         # Decide action using LLM (with fallback to heuristics)
@@ -176,20 +179,26 @@ def run_inference(task: str = "easy", seed: int = 42):
 
         # Extract observation from wrapped response
         next_obs = step_response["observation"]
+        reward = float(step_response.get("reward", 0.0))
+        total_reward += reward
         trajectory.append({
             "obs": next_obs,
             "action": action,
-            "reward": step_response["reward"],
+            "reward": reward,
         })
         obs = next_obs
         done = step_response["done"]
         step += 1
 
+        print(f"[STEP] step={step} reward={round(reward, 4)}", flush=True)
+
     # Grade
     score_result = client.post(
         "/grader", json={"task": task, "trajectory": trajectory}
     ).json()
-    score = score_result.get("score", 0.0)
+    score = float(score_result.get("score", 0.0))
+
+    print(f"[END] task={task} score={round(score, 4)} steps={step}", flush=True)
 
     return {"task": task, "score": score, "steps": step}
 
@@ -199,8 +208,5 @@ if __name__ == "__main__":
     for task in ["easy", "medium", "hard"]:
         result = run_inference(task=task)
         results.append(result)
-        # Print human-readable log for debugging
-        print(f"Task: {task} | Steps: {result['steps']} | Score: {result['score']}")
-    
-    # Output JSON for validator to parse
-    print("\n" + json.dumps(results, indent=2))
+
+    print(json.dumps(results), flush=True)

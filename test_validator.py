@@ -36,11 +36,14 @@ def test_inference_output():
         print(result.stderr)
         print(f"\nExit code: {result.returncode}")
         
-        # Try to find and parse JSON output
+        # Try to find and parse the final JSON array output.
+        # inference.py may print structured log lines like [START]/[STEP]/[END]
+        # before emitting the final JSON payload.
         lines = result.stdout.strip().split('\n')
         json_start = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith('['):
+        for i in range(len(lines) - 1, -1, -1):
+            line = lines[i].strip()
+            if line.startswith('[{') or line == '[':
                 json_start = i
                 break
         
