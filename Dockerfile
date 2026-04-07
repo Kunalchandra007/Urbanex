@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-compile -r requirements.txt && \
     rm -rf /root/.cache/pip/* /root/.cache/bytecode* && \
-    find /usr/local/lib/python3.12 -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    find /usr/local/lib -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 # Copy application code
 COPY . .
