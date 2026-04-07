@@ -1,15 +1,15 @@
 """
-FastAPI server for Velora OpenEnv.
-Exposes all required endpoints: /reset, /step, /state, /tasks, /grader, /baseline, /ws (WebSocket).
+FastAPI server for URBANEX.
+
+Exposes the HTTP and WebSocket interfaces used by local development,
+OpenEnv validation, and the Hugging Face Space deployment.
 """
-from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
-import json
 
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from environment.velora_env import VeloraEnv
+from environment.urbanex_env import UrbanexEnv
 from graders import grade_easy, grade_medium, grade_hard
 from models.action import Action
 from models.observation import Observation
@@ -20,10 +20,10 @@ from tasks import EASY_CONFIG, MEDIUM_CONFIG, HARD_CONFIG
 # Global environment singleton (one per server process)
 # ---------------------------------------------------------------------------
 
-_env: Optional[VeloraEnv] = None
+_env: Optional[UrbanexEnv] = None
 
 
-def _get_env() -> VeloraEnv:
+def _get_env() -> UrbanexEnv:
     if _env is None:
         raise HTTPException(status_code=400, detail="Environment not initialized. Call POST /reset first.")
     return _env
@@ -76,6 +76,13 @@ class BaselineResponse(BaseModel):
     total_reward: float
 
 
+class StateSchema(BaseModel):
+    """Schema used by /schema without requiring openenv-core at runtime."""
+
+    episode_id: Optional[str] = Field(default=None)
+    step_count: int = Field(default=0, ge=0)
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -117,6 +124,39 @@ def root():
     }
 
 
+@app.get("/metadata")
+def metadata():
+    """Minimal OpenEnv metadata endpoint."""
+    return {
+        "name": "URBANEX",
+        "description": "Urban navigation RL environment for route selection under uncertainty",
+        "version": "1.0.0",
+    }
+
+
+@app.get("/schema")
+def schema():
+    """Expose action / observation / state schemas for OpenEnv validators."""
+    return {
+        "action": Action.model_json_schema(),
+        "observation": Observation.model_json_schema(),
+        "state": StateSchema.model_json_schema(),
+    }
+
+
+@app.post("/mcp")
+def mcp():
+    """Return a JSON-RPC payload so OpenEnv runtime validation succeeds."""
+    return {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": -32601,
+            "message": "MCP is not implemented for this simulation environment.",
+        },
+    }
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -124,49 +164,70 @@ async def websocket_endpoint(websocket: WebSocket):
     Handles reset, step, and state messages as per OpenEnv spec.
     """
     await websocket.accept()
-    env: Optional[VeloraEnv] = None
+    env: Optional[UrbanexEnv] = None
     
     try:
         while True:
             data = await websocket.receive_json()
             msg_type = data.get("type")
+            is_legacy_message = "data" not in data
+            payload = data if is_legacy_message else data.get("data", {})
             
             if msg_type == "reset":
                 # Reset the environment
-                task = data.get("task", "easy")
-                seed = data.get("seed", 42)
-                env = VeloraEnv(task=task, seed=seed)
+                task = payload.get("task", payload.get("task_id", "easy"))
+                seed = payload.get("seed", 42)
+                env = UrbanexEnv(task=task, seed=seed)
                 obs = env.reset()
-                await websocket.send_json({
-                    "type": "reset",
-                    "observation": obs.dict(),
-                    "episode_id": str(seed)
-                })
+                obs_payload = obs.model_dump()
+                obs_payload["done"] = obs.episode_done
+                obs_payload["reward"] = None
+                response = {
+                    "type": "reset" if is_legacy_message else "observation",
+                    "data": obs_payload,
+                    "observation": obs_payload,
+                    "episode_id": str(seed),
+                }
+                await websocket.send_json(response)
             
             elif msg_type == "step":
                 # Take a step in the environment
                 if env is None:
                     await websocket.send_json({
                         "type": "error",
-                        "message": "Environment not initialized. Call reset first."
+                        "message": "Environment not initialized. Call reset first.",
+                        "data": {
+                            "message": "Environment not initialized. Call reset first.",
+                            "code": "EXECUTION_ERROR",
+                        },
                     })
                     continue
                 
                 try:
-                    action_data = data.get("action", {})
+                    action_data = payload if not is_legacy_message else data.get("action", {})
                     action = Action(**action_data)
                     obs, reward, done, info = env.step(action)
-                    await websocket.send_json({
-                        "type": "step",
-                        "observation": obs.dict(),
+                    obs_payload = obs.model_dump()
+                    obs_payload["done"] = done
+                    obs_payload["reward"] = float(reward.total)
+                    obs_payload["metadata"] = {"info": info}
+                    response = {
+                        "type": "step" if is_legacy_message else "observation",
+                        "data": obs_payload,
+                        "observation": obs_payload,
                         "reward": float(reward.total),
                         "done": done,
-                        "info": info
-                    })
+                        "info": info,
+                    }
+                    await websocket.send_json(response)
                 except Exception as e:
                     await websocket.send_json({
                         "type": "error",
-                        "message": str(e)
+                        "message": str(e),
+                        "data": {
+                            "message": str(e),
+                            "code": "EXECUTION_ERROR",
+                        },
                     })
             
             elif msg_type == "state":
@@ -174,20 +235,30 @@ async def websocket_endpoint(websocket: WebSocket):
                 if env is None:
                     await websocket.send_json({
                         "type": "error",
-                        "message": "Environment not initialized. Call reset first."
+                        "message": "Environment not initialized. Call reset first.",
+                        "data": {
+                            "message": "Environment not initialized. Call reset first.",
+                            "code": "EXECUTION_ERROR",
+                        },
                     })
                     continue
                 
+                state_payload = env.state()
                 obs = env.get_observation()
                 await websocket.send_json({
                     "type": "state",
-                    "observation": obs.dict()
+                    "data": state_payload,
+                    "observation": obs.model_dump(),
                 })
             
             else:
                 await websocket.send_json({
                     "type": "error",
-                    "message": f"Unknown message type: {msg_type}"
+                    "message": f"Unknown message type: {msg_type}",
+                    "data": {
+                        "message": f"Unknown message type: {msg_type}",
+                        "code": "UNKNOWN_TYPE",
+                    },
                 })
     
     except WebSocketDisconnect:
@@ -199,7 +270,7 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/health")
 def health():
     """Standard OpenEnv health check endpoint."""
-    return {"status": "ok"}
+    return {"status": "healthy"}
 
 
 @app.post("/reset", response_model=ResetResponse)
@@ -234,7 +305,7 @@ def reset_env(
     if task_name not in TASK_CONFIGS:
         raise HTTPException(status_code=400, detail=f"Unknown task '{task_name}'. Choose: easy, medium, hard")
     
-    _env = VeloraEnv(task=task_name, seed=seed_val)
+    _env = UrbanexEnv(task=task_name, seed=seed_val)
     obs = _env.reset()
     return ResetResponse(observation=obs, info={})
 

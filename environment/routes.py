@@ -1,7 +1,7 @@
 """
-Route generation and scoring logic for Velora OpenEnv.
-Ported from Flutter's navigation_provider.dart (RouteType: fastest/safe/eco).
-Includes hidden_risk_prob for partial observability.
+Route generation and scoring logic for URBANEX.
+
+Builds the three route profiles and assigns time, safety, fuel, and hidden risk.
 """
 import random
 from typing import List, Optional

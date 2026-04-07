@@ -1,19 +1,19 @@
 """
-Tests for the Velora environment.
+Tests for the URBANEX environment.
 """
 import sys
 import os
 
-# Ensure velora-openenv is on the path
+# Ensure the project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
-from environment.velora_env import VeloraEnv
+from environment.urbanex_env import UrbanexEnv
 from models.action import Action
 
 
-def _make_env(task="easy") -> VeloraEnv:
-    env = VeloraEnv(task=task, seed=42)
+def _make_env(task="easy") -> UrbanexEnv:
+    env = UrbanexEnv(task=task, seed=42)
     return env
 
 

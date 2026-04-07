@@ -1,7 +1,8 @@
 """
-CLI Visualizer for Velora OpenEnv episodes.
-Activated via: VELORA_RENDER=1 or visualize=True in run_baseline().
-Shows step-by-step ASCII table: route, reward bar, incidents, distance.
+CLI visualizer for URBANEX episodes.
+
+Activated via `URBANEX_RENDER=1` or `visualize=True` in `run_baseline()`.
+Shows a compact ASCII summary of route, reward, incidents, and distance.
 """
 import os
 
@@ -51,7 +52,7 @@ def render_step(step: int, obs, action, reward, info: dict = None) -> None:
 def render_episode_header(task: str, seed: int) -> None:
     print()
     print("=" * 80)
-    print(f"  VELORA -- Task: {task.upper()}   seed={seed}")
+    print(f"  URBANEX -- Task: {task.upper()}   seed={seed}")
     print("=" * 80)
     print(f"  {'Step':6} | {'Action':<22} | {'Reward':14} | {'Inc':6} | {'Dist':6} | Env")
     print(f"  {'-'*72}")
@@ -67,4 +68,4 @@ def render_episode_footer(steps: int, total_reward: float, score: float, done: b
 
 
 def should_render() -> bool:
-    return os.environ.get("VELORA_RENDER", "0").strip() in ("1", "true", "yes")
+    return os.environ.get("URBANEX_RENDER", "0").strip() in ("1", "true", "yes")

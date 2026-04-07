@@ -1,6 +1,7 @@
 """
-City simulation module for Velora OpenEnv.
-Holds Bangalore waypoints, distance computation, and city graph state.
+City simulation module for URBANEX.
+
+Holds Bangalore waypoints, distance computation, and mutable city state.
 """
 import math
 import random

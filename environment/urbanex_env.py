@@ -1,39 +1,40 @@
 """
-Main environment class: VeloraEnv — v2
-Adds hidden incident tracking, delayed penalties, greedy trap, and two-stage dynamics.
+Main environment class: UrbanexEnv.
+
+This is the core simulation loop for URBANEX. It coordinates the city graph,
+incident manager, route calculator, and reward model across reset/step cycles.
 """
 import random
-from typing import Deque, Optional, Tuple
 from collections import deque
+from typing import Deque, Optional, Tuple
 
 from environment.city import CityGraph
 from environment.incidents import IncidentManager
-from environment.routes import RouteCalculator
 from environment.rewards import RewardCalculator
+from environment.routes import RouteCalculator
 from models.action import Action
 from models.observation import Observation
 from models.reward import Reward
 from tasks.task_easy import EASY_CONFIG
-from tasks.task_medium import MEDIUM_CONFIG
 from tasks.task_hard import HARD_CONFIG
+from tasks.task_medium import MEDIUM_CONFIG
 
 TASK_CONFIGS = {
-    "easy":   EASY_CONFIG,
+    "easy": EASY_CONFIG,
     "medium": MEDIUM_CONFIG,
-    "hard":   HARD_CONFIG,
+    "hard": HARD_CONFIG,
 }
 
 
-class VeloraEnv:
+class UrbanexEnv:
     """
-    Velora Urban Navigation RL environment — v2.
+    URBANEX urban navigation environment.
 
-    New in v2:
-    - hidden_risk_prob on each route for partial observability
-    - Hidden incidents trigger dynamically (unannounced)
-    - Delayed consequence: penalty applied 2 steps after trigger
-    - Greedy trap in medium task (fastest route hidden accident at step 2)
-    - Two-stage traffic and weather escalation in hard task
+    Features:
+    - hidden route risk for partial observability
+    - delayed penalties from latent incidents
+    - a medium-task greedy trap on the fastest route
+    - dynamic traffic, weather, and incident changes in hard mode
     """
 
     def __init__(self, task: str = "easy", seed: int = 42):
@@ -49,7 +50,6 @@ class VeloraEnv:
         self._routes = RouteCalculator()
         self._rewards = RewardCalculator()
 
-        # Mutable episode state
         self._step = 0
         self._current_route: Optional[str] = None
         self._done = False
@@ -58,18 +58,11 @@ class VeloraEnv:
         self._weather = self.config.get("weather", "clear")
         self._prev_obs: Optional[Observation] = None
 
-        # Delayed penalty queue: (trigger_step, penalty_amount)
         self._pending_penalties: Deque[Tuple[int, float]] = deque()
-
-        # Greedy trap state
         self._greedy_trap_fired = False
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Public API
-    # ──────────────────────────────────────────────────────────────────────
-
     def reset(self, origin_name: Optional[str] = None, dest_name: Optional[str] = None) -> Observation:
-        """Reset environment and return initial observation."""
+        """Reset the environment and return the initial observation."""
         self._rng = random.Random(self.seed)
         self._step = 0
         self._done = False
@@ -84,7 +77,6 @@ class VeloraEnv:
         self._city.reset(origin_name=origin_name, dest_name=dest_name)
         self._incidents.reset()
 
-        # Place pre-configured incidents for task setup
         for inc_cfg in self.config.get("setup_incidents", []):
             loc = self._city.random_waypoint_near(inc_cfg["affects_routes"][0])
             self._incidents.place_incident(
@@ -99,28 +91,20 @@ class VeloraEnv:
         return obs
 
     def step(self, action: Action) -> Tuple[Observation, Reward, bool, dict]:
-        """Apply action, advance city, compute reward. Returns (obs, reward, done, info)."""
+        """Apply an action and advance the simulation one step."""
         if self._done:
             raise RuntimeError("Episode is done. Call reset() first.")
 
         prev_obs = self._prev_obs or self._build_observation()
-
-        # Apply action effects
         self._apply_action(action)
-
-        # Advance city simulation (incidents, traffic, weather)
         self._advance_city()
-
-        # Collect any delayed penalty that's now due
         hidden_penalty = self._collect_pending_penalty()
 
-        # Build new observation
         new_obs = self._build_observation()
         done = self._is_done()
         new_obs = new_obs.model_copy(update={"episode_done": done})
         self._done = done
 
-        # Compute reward
         reward = self._rewards.compute_step_reward(
             action=action,
             prev_obs=prev_obs,
@@ -159,12 +143,8 @@ class VeloraEnv:
         }
 
     def get_observation(self) -> Observation:
-        """Get the current observation without advancing the episode."""
+        """Return the current observation without advancing the episode."""
         return self._prev_obs or self._build_observation()
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Private helpers
-    # ──────────────────────────────────────────────────────────────────────
 
     def _apply_action(self, action: Action) -> None:
         if action.action_type in ("select_route", "reroute"):
@@ -183,27 +163,22 @@ class VeloraEnv:
     def _advance_city(self) -> None:
         self._step += 1
 
-        # Move agent if on a route
         if self._current_route:
             self._city.move_towards_destination(fraction=0.30)
 
-        # Tick incident lifetimes
         self._incidents.tick()
 
-        # ── Hidden incident roll: may trigger unannounced penalty in 2 steps ──
         if self._current_route:
             routes = self._build_observation().available_routes
-            cur_route_opt = next((r for r in routes if r.route_id == self._current_route), None)
-            if cur_route_opt:
+            current_route = next((r for r in routes if r.route_id == self._current_route), None)
+            if current_route:
                 roll = self._rng.random()
-                # Scale threshold: harder tasks have higher trigger rate
-                threshold = cur_route_opt.hidden_risk_prob * self.config.get("hidden_risk_scale", 0.4)
+                threshold = current_route.hidden_risk_prob * self.config.get("hidden_risk_scale", 0.4)
                 if roll < threshold:
                     delay = 2
-                    penalty_amount = round(cur_route_opt.hidden_risk_prob * 0.5, 3)
+                    penalty_amount = round(current_route.hidden_risk_prob * 0.5, 3)
                     self._pending_penalties.append((self._step + delay, penalty_amount))
 
-        # ── GREEDY TRAP (medium task) ──────────────────────────────────────
         trap_step = self.config.get("greedy_trap_step")
         if trap_step and self._step == trap_step and not self._greedy_trap_fired:
             if self._current_route == "fastest":
@@ -211,21 +186,21 @@ class VeloraEnv:
                 self._pending_penalties.append((self._step, trap_penalty))
                 self._greedy_trap_fired = True
 
-        # ── Dynamic incidents (hard task) ──────────────────────────────────
         if self.config.get("dynamic_incidents", False):
             for spawn_step in self.config.get("spawn_steps", []):
                 if self._step == spawn_step:
                     loc = self._city.random_waypoint_near("fastest")
-                    # 70% chance on fastest (greedy trap bias)
-                    routes_to_affect = ["fastest"] if self._rng.random() < 0.70 else \
-                        self._rng.sample(["fastest", "safe", "eco"], 2)
+                    routes_to_affect = (
+                        ["fastest"]
+                        if self._rng.random() < 0.70
+                        else self._rng.sample(["fastest", "safe", "eco"], 2)
+                    )
                     self._incidents.spawn_incident(
                         location=loc,
                         affects_routes=routes_to_affect,
                         lifetime_steps=4,
                     )
 
-        # ── Two-stage traffic escalation ────────────────────────────────────
         t1 = self.config.get("traffic_change_step")
         t2 = self.config.get("traffic_change_step_2")
         if t2 and self._step >= t2:
@@ -233,7 +208,6 @@ class VeloraEnv:
         elif t1 and self._step >= t1:
             self._traffic_level = self.config.get("traffic_after", self._traffic_level)
 
-        # ── Two-stage weather change ─────────────────────────────────────────
         w1 = self.config.get("weather_change_step")
         w2 = self.config.get("weather_change_step_2")
         if w2 and self._step >= w2:
@@ -242,10 +216,10 @@ class VeloraEnv:
             self._weather = self.config.get("weather_after", self._weather)
 
     def _collect_pending_penalty(self) -> float:
-        """Pop all penalties due at this step from the queue."""
+        """Pop all penalties due at the current step."""
         total = 0.0
         remaining = deque()
-        for (due_step, amount) in self._pending_penalties:
+        for due_step, amount in self._pending_penalties:
             if due_step <= self._step:
                 total += amount
             else:

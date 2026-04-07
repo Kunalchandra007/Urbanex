@@ -1,5 +1,5 @@
 """
-Baseline agents for Velora OpenEnv.
+Baseline agents for URBANEX.
 - rule_based_agent: deterministic policy, no API key required (PRIMARY)
 - llm_agent: GPT-4o-mini agent (requires OPENAI_API_KEY)
 - run_baseline: run full episode and return graded score
@@ -7,7 +7,7 @@ Baseline agents for Velora OpenEnv.
 import os
 from typing import Optional
 
-from environment.velora_env import VeloraEnv
+from environment.urbanex_env import UrbanexEnv
 from graders import grade_easy, grade_medium, grade_hard
 from models.action import Action
 from models.observation import Observation
@@ -150,7 +150,7 @@ def run_baseline(task: str = "easy", agent: str = "rule_based", seed: int = 42, 
         task: "easy" | "medium" | "hard"
         agent: "rule_based" | "llm"
         seed: random seed for reproducibility
-        visualize: print step-by-step CLI table (or set VELORA_RENDER=1)
+        visualize: print step-by-step CLI table (or set URBANEX_RENDER=1)
 
     Returns:
         dict with keys: task, agent, score, steps, total_reward
@@ -158,7 +158,7 @@ def run_baseline(task: str = "easy", agent: str = "rule_based", seed: int = 42, 
     from baseline.visualizer import render_step, render_episode_header, render_episode_footer, should_render
     show = visualize or should_render()
 
-    env = VeloraEnv(task=task, seed=seed)
+    env = UrbanexEnv(task=task, seed=seed)
     obs = env.reset()
 
     agent_fn = llm_agent if agent == "llm" else rule_based_agent

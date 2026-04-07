@@ -1,6 +1,7 @@
 """
-Reward computation for Velora OpenEnv — v2.
-Smarter reward with risk exposure, indecision penalty, and recovery bonus.
+Reward computation for URBANEX.
+
+Includes risk exposure, indecision penalty, and recovery bonus terms.
 """
 from typing import Optional
 

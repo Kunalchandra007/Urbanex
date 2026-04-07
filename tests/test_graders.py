@@ -1,5 +1,5 @@
 """
-Tests for the Velora graders.
+Tests for the URBANEX graders.
 """
 import sys
 import os

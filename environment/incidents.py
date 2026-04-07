@@ -1,6 +1,7 @@
 """
-Incident types, spawning, and management for Velora OpenEnv.
-Ported from Flutter's incident_provider.dart and navigation_provider.dart.
+Incident types, spawning, and management for URBANEX.
+
+Ported from the original app-side incident and navigation providers.
 """
 import random
 import uuid

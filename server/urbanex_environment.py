@@ -1,5 +1,5 @@
 """
-URBANEX Environment — OpenEnv-compliant wrapper around VeloraEnv.
+URBANEX Environment — OpenEnv-compliant wrapper around UrbanexEnv.
 
 This module bridges the game logic (environment/) with the OpenEnv server interface.
 """
@@ -9,7 +9,7 @@ from typing import Optional
 
 from openenv.core.env_server import Environment, State
 
-from environment.velora_env import VeloraEnv
+from environment.urbanex_env import UrbanexEnv
 from environment.rewards import RewardCalculator
 from models import UrbanexAction, UrbanexObservation, RouteOption, Incident, Reward
 from graders import grade_easy, grade_medium, grade_hard
@@ -26,7 +26,7 @@ class UrbanexEnvironment(Environment):
         """Initialize the environment."""
         self._episode_id = str(uuid4())
         self._step_count = 0
-        self._env: Optional[VeloraEnv] = None
+        self._env: Optional[UrbanexEnv] = None
         self._state = State(episode_id=self._episode_id, step_count=self._step_count)
         self._last_reward: Reward = Reward()
         self._grader_map = {
@@ -53,10 +53,10 @@ class UrbanexEnvironment(Environment):
         self._state = State(episode_id=self._episode_id, step_count=self._step_count)
 
         # Initialize environment
-        self._env = VeloraEnv(task=task, seed=seed)
+        self._env = UrbanexEnv(task=task, seed=seed)
         obs = self._env.reset()
 
-        # Convert VeloraEnv observation to OpenEnv observation
+        # Convert UrbanexEnv observation to OpenEnv observation
         return self._convert_observation(obs, done=False)
 
     def step(self, action: UrbanexAction) -> tuple[UrbanexObservation, float, bool]:
@@ -72,7 +72,7 @@ class UrbanexEnvironment(Environment):
         if self._env is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
 
-        # Execute step in VeloraEnv
+        # Execute step in UrbanexEnv
         obs, reward, done, info = self._env.step(action)
 
         # Update state
@@ -91,12 +91,12 @@ class UrbanexEnvironment(Environment):
         """Get current episode state."""
         return self._state
 
-    def _convert_observation(self, velora_obs, done: bool = False) -> UrbanexObservation:
-        """Convert VeloraEnv observation to UrbanexObservation."""
+    def _convert_observation(self, env_obs, done: bool = False) -> UrbanexObservation:
+        """Convert a simulation observation into UrbanexObservation."""
         return UrbanexObservation(
-            step=velora_obs.step,
-            current_location=velora_obs.current_location,
-            destination=velora_obs.destination,
+            step=env_obs.step,
+            current_location=env_obs.current_location,
+            destination=env_obs.destination,
             available_routes=[
                 RouteOption(
                     route_id=r.route_id,
@@ -107,7 +107,7 @@ class UrbanexEnvironment(Environment):
                     safety_score=r.safety_score,
                     hidden_risk_prob=r.hidden_risk_prob,
                 )
-                for r in velora_obs.available_routes
+                for r in env_obs.available_routes
             ],
             active_incidents=[
                 Incident(
@@ -118,13 +118,14 @@ class UrbanexEnvironment(Environment):
                     lng=i.lng,
                     affects_routes=i.affects_routes,
                 )
-                for i in velora_obs.active_incidents
+                for i in env_obs.active_incidents
             ],
-            traffic_level=velora_obs.traffic_level,
-            weather=velora_obs.weather,
-            current_route=velora_obs.current_route,
-            distance_remaining_km=velora_obs.distance_remaining_km,
-            episode_done=velora_obs.episode_done,
+            traffic_level=env_obs.traffic_level,
+            weather=env_obs.weather,
+            current_route=env_obs.current_route,
+            distance_remaining_km=env_obs.distance_remaining_km,
+            episode_done=env_obs.episode_done,
+            done=done,
             reward=float(self._last_reward.total),
         )
 
