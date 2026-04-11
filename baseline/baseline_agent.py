@@ -19,6 +19,11 @@ GRADER_MAP = {
 }
 
 
+def _clamp_open_score(score: float) -> float:
+    """Clamp scores to the validator-required open interval."""
+    return round(max(0.05, min(0.95, float(score))), 4)
+
+
 # ---------------------------------------------------------------------------
 # Rule-based agent (no API key needed)
 # ---------------------------------------------------------------------------
@@ -184,7 +189,7 @@ def run_baseline(task: str = "easy", agent: str = "rule_based", seed: int = 42, 
         obs = new_obs
 
     grader_fn = GRADER_MAP.get(task, grade_easy)
-    score = grader_fn(trajectory)
+    score = _clamp_open_score(grader_fn(trajectory))
 
     if show:
         render_episode_footer(steps, total_reward, score, done)

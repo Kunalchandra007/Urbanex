@@ -109,6 +109,11 @@ GRADER_MAP = {
 }
 
 
+def _clamp_open_score(score: float) -> float:
+    """Clamp scores to the validator-required open interval."""
+    return round(max(0.05, min(0.95, float(score))), 4)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -368,7 +373,7 @@ def grade_trajectory(request: GraderRequest):
     trajectory = _deserialize_trajectory(request.trajectory)
 
     grader_fn = GRADER_MAP[request.task]
-    score = grader_fn(trajectory)
+    score = _clamp_open_score(grader_fn(trajectory))
 
     return GraderResponse(
         score=score,
@@ -389,6 +394,7 @@ def run_baseline(request: BaselineRequest):
         raise HTTPException(status_code=400, detail=f"Unknown task '{request.task}'")
 
     result = _run_baseline(task=request.task, agent=request.agent, seed=request.seed)
+    result["score"] = _clamp_open_score(result["score"])
     return BaselineResponse(**result)
 
 
