@@ -1,0 +1,1 @@
+Contributions are welcome. URBANEX is designed to be extended with new tasks, hazards, route features, and evaluation metrics. If you add a new task or scoring component, please include a brief description and a minimal test so others can reproduce your results. Thank you for helping this environment grow beyond the hackathon.

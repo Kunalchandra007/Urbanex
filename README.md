@@ -15,7 +15,21 @@ tags:
 
 # URBANEX
 
+[![HF Space](https://img.shields.io/badge/HF%20Space-urbanexx-blue)](https://huggingface.co/spaces/kunalchandra007/urbanexx)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+
 URBANEX is a reinforcement learning benchmark for urban navigation in Bangalore, where agents must route under real-world-style stakes: unsafe roads, delayed hazards, weather disruption, and conflicting objectives across safety, travel time, and fuel efficiency. Unlike toy gridworlds, it blends partial observability with decision pressure, making it a compact but meaningful testbed for both classical RL policies and general-purpose LLM agents.
+
+## Quick Start
+
+```python
+from client import UrbanexEnv
+env = UrbanexEnv(); obs = env.reset("easy")
+while True:
+    obs, reward, done, _ = env.step({"action_type": "continue"})
+    if done: break
+```
 
 ## Observation Space
 
@@ -78,13 +92,17 @@ Key shaped signals:
 
 Per-step reward is clamped to `[-1, 1]`. Final grader scores are constrained to the open interval `(0, 1)` for validator compatibility.
 
+## Reward Design
+
+The weights `w_s = 0.5`, `w_t = 0.3`, and `w_f = 0.2` reflect real urban navigation priorities: safety comes first, then travel time, then fuel efficiency. This mirrors how a human route planner would behave in a city where incident exposure can carry serious risk, even when a faster or cheaper route exists.
+
 ## Tasks
 
-| Task | Max Steps | Traffic | Weather | What makes it hard |
-|------|-----------|---------|---------|--------------------|
-| `easy` | `10` | Low | Clear | Straightforward route selection with no incident pressure |
-| `medium` | `15` | Medium | Clear | Greedy trap on the fastest route plus pre-placed incidents |
-| `hard` | `18` | Low → Medium → High | Clear → Heavy Rain | Forced high-severity accident on `fastest`, late fuel pressure on `eco`, dynamic incident spawns, and safety collapse under heavy rain |
+| Task | Max Steps | Traffic | Weather | What makes it hard | What makes it hard for LLMs |
+|------|-----------|---------|---------|--------------------|----------------------------|
+| `easy` | `10` | Low | Clear | Straightforward route selection with no incident pressure | No prior navigation knowledge needed; minimal uncertainty |
+| `medium` | `15` | Medium | Clear | Greedy trap on the fastest route plus pre-placed incidents | Must recognize incident severity and reroute to stay safe |
+| `hard` | `18` | Low → Medium → High | Clear → Heavy Rain | Forced high-severity accident on `fastest`, late fuel pressure on `eco`, dynamic incident spawns, and safety collapse under heavy rain | Must adapt to changing conditions mid-episode without seeing the full map |
 
 ## Baseline Scores
 
@@ -99,6 +117,10 @@ Rule-based baseline agent, shown in rounded human-readable form:
 ## Why URBANEX Challenges LLMs
 
 URBANEX is difficult for LLM agents because route safety is only partially observable. The `hidden_risk_prob` field hints that a route may be dangerous without revealing the exact failure mode, so the model must reason under uncertainty rather than simply reacting to visible incidents. The hard task adds delayed consequences: an apparently attractive route can degrade several steps later as incidents spawn or weather worsens. On top of that, the environment is explicitly multi-objective, so the shortest route is often tempting but strategically wrong when safety and fuel tradeoffs are taken seriously.
+
+## Partial Observability
+
+The `hidden_risk_prob` signal is the core partial observability mechanism: routes can appear safe while concealing downstream hazards that only emerge mid-episode. A strong agent learns to treat this as a risk prior rather than a guarantee, which is what separates random route selection from robust policy behavior under uncertainty.
 
 ## Setup
 
@@ -153,3 +175,15 @@ This repository includes:
 - `server/app.py`
 - `uv.lock`
 - OpenEnv-compatible schemas and client/server wrappers
+
+## Citation
+
+```bibtex
+@misc{urbanex2026,
+  title        = {URBANEX: Urban Navigation Benchmark for RL and LLM Agents},
+  author       = {Kunal Chandra and Contributors},
+  year         = {2026},
+  howpublished = {Hugging Face Space},
+  url          = {https://huggingface.co/spaces/kunalchandra007/urbanexx}
+}
+```
