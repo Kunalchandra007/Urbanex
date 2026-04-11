@@ -29,7 +29,8 @@ class Observation(BaseModel):
     available_routes: List[RouteOption]
     active_incidents: List[Incident]
     traffic_level: str             # "low" | "medium" | "high"
-    weather: str                   # "clear" | "rain" | "fog"
+    weather: str                   # "clear" | "rain" | "fog" | "heavy_rain"
     current_route: Optional[str]   # currently selected route_id or None
     distance_remaining_km: float
     episode_done: bool
+    situation_summary: str = ""

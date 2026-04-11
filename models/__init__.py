@@ -1,92 +1,113 @@
 """
-URBANEX models — OpenEnv-compliant data types.
+Shared model exports for URBANEX.
 
-This package provides all Pydantic models for the URBANEX environment.
+This module keeps the original environment models available at the package
+level while also exposing OpenEnv-compatible wrapper models used by the
+`client.py` and `server/` integration layer.
 """
 
-from typing import List, Optional, Literal
+from typing import Any, Dict, Literal, Optional
+
 from pydantic import BaseModel, Field
 
+try:
+    from openenv.core.env_server.types import Action as OpenEnvAction
+    from openenv.core.env_server.types import Observation as OpenEnvObservation
+except ModuleNotFoundError:
+    class OpenEnvAction(BaseModel):
+        """Fallback base model when openenv-core is unavailable."""
 
-# Action Type
-class UrbanexAction(BaseModel):
-    """Action that an agent can take in URBANEX."""
+        metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+    class OpenEnvObservation(BaseModel):
+        """Fallback observation model when openenv-core is unavailable."""
+
+        done: bool = Field(default=False)
+        reward: float | None = Field(default=None)
+        metadata: Dict[str, Any] = Field(default_factory=dict)
+
+from .action import Action
+from .observation import Incident, Observation, RouteOption
+from .reward import Reward
+
+
+class UrbanexAction(OpenEnvAction):
+    """OpenEnv-compatible action model."""
+
     action_type: Literal[
-        "select_route",    # choose a route to follow
-        "reroute",         # switch to a different route mid-journey
-        "report_incident", # report a new incident
-        "continue",        # keep going on current route
-        "stop"             # abandon journey
+        "select_route",
+        "reroute",
+        "report_incident",
+        "continue",
+        "stop",
     ] = Field(..., description="Type of action to take")
-    route_id: Optional[str] = Field(None, description="Route ID (for select_route/reroute)")
-    incident_type: Optional[str] = Field(None, description="Incident type (for report_incident)")
-    incident_lat: Optional[float] = Field(None, description="Incident latitude")
-    incident_lng: Optional[float] = Field(None, description="Incident longitude")
+    route_id: Optional[str] = Field(
+        default=None, description="Route ID for select_route / reroute"
+    )
+    incident_type: Optional[str] = Field(
+        default=None, description="Incident type for report_incident"
+    )
+    incident_lat: Optional[float] = Field(
+        default=None, description="Incident latitude"
+    )
+    incident_lng: Optional[float] = Field(
+        default=None, description="Incident longitude"
+    )
 
 
-# Observation Components
-class RouteOption(BaseModel):
-    """A route option available to the agent."""
-    route_id: str = Field(..., description="Route identifier: 'fastest', 'safe', or 'eco'")
-    estimated_time_min: float = Field(..., description="Estimated travel time in minutes")
-    distance_km: float = Field(default=0.0, description="Distance in kilometers")
-    incident_count: int = Field(default=0, description="Number of incidents on this route")
-    fuel_cost_score: float = Field(default=0.0, description="Fuel cost score (0.0-1.0)")
-    safety_score: float = Field(default=1.0, description="Safety score (0.0-1.0)")
-    hidden_risk_prob: float = Field(default=0.0, description="Probability of hidden risks (0.0-1.0)")
+class UrbanexObservation(OpenEnvObservation):
+    """OpenEnv-compatible observation model."""
 
-
-class Incident(BaseModel):
-    """A traffic incident on the road network."""
-    incident_id: str = Field(..., description="Unique incident identifier")
-    type: str = Field(..., description="Incident type: accident, roadwork, flooding, etc.")
-    severity: Literal["low", "medium", "high"] = Field(..., description="Incident severity")
-    lat: float = Field(..., description="Latitude of incident")
-    lng: float = Field(..., description="Longitude of incident")
-    affects_routes: List[str] = Field(default_factory=list, description="Route IDs this incident affects")
-
-
-# Observation Type
-class UrbanexObservation(BaseModel):
-    """Complete observation of the environment state."""
     step: int = Field(default=0, description="Current step number")
-    current_location: List[float] = Field(..., description="Current location as [lat, lng]")
-    destination: List[float] = Field(..., description="Destination as [lat, lng]")
-    available_routes: List[RouteOption] = Field(default_factory=list, description="Available route options")
-    active_incidents: List[Incident] = Field(default_factory=list, description="Active incidents")
-    traffic_level: Literal["low", "medium", "high"] = Field("low", description="Current traffic level")
-    weather: Literal["clear", "rain", "fog"] = Field("clear", description="Current weather")
-    current_route: Optional[str] = Field(None, description="Currently selected route ID")
-    distance_remaining_km: float = Field(default=0.0, description="Distance to destination in km")
-    episode_done: bool = Field(default=False, description="Whether episode is complete")
-    reward: float = Field(default=0.0, description="Reward for this step")
+    current_location: list[float] = Field(
+        ..., description="Current location as [lat, lng]"
+    )
+    destination: list[float] = Field(..., description="Destination as [lat, lng]")
+    available_routes: list[RouteOption] = Field(
+        default_factory=list, description="Available route options"
+    )
+    active_incidents: list[Incident] = Field(
+        default_factory=list, description="Visible incidents"
+    )
+    traffic_level: Literal["low", "medium", "high"] = Field(
+        default="low", description="Current traffic level"
+    )
+    weather: Literal["clear", "rain", "fog", "heavy_rain"] = Field(
+        default="clear", description="Current weather condition"
+    )
+    current_route: Optional[str] = Field(
+        default=None, description="Currently selected route"
+    )
+    distance_remaining_km: float = Field(
+        default=0.0, description="Distance remaining in kilometers"
+    )
+    episode_done: bool = Field(
+        default=False, description="Whether the underlying environment has ended"
+    )
+    situation_summary: str = Field(
+        default="", description="Plain-English summary of the current navigation situation"
+    )
+    done: bool = Field(default=False, description="OpenEnv episode completion flag")
+    reward: float | None = Field(
+        default=None, description="Reward associated with the latest transition"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional OpenEnv metadata"
+    )
 
 
-# Reward breakdown (for transparency)
-class Reward(BaseModel):
-    """Detailed reward breakdown."""
-    total: float = Field(default=0.0, description="Total reward")
-    safety_component: float = Field(default=0.0, description="Safety reward component")
-    time_component: float = Field(default=0.0, description="Time efficiency component")
-    fuel_component: float = Field(default=0.0, description="Fuel efficiency component")
-    penalty: float = Field(default=0.0, description="Applied penalties")
-    reason: str = Field(default="", description="Reward reason/explanation")
-
-
-# Legacy imports for backward compatibility
-from .observation import Observation as LegacyObservation
-from .action import Action as LegacyAction
-
+LegacyAction = Action
+LegacyObservation = Observation
 
 __all__ = [
-    # New OpenEnv types
-    "UrbanexAction",
-    "UrbanexObservation",
+    "Action",
+    "Observation",
     "RouteOption",
     "Incident",
     "Reward",
-    # Legacy types (for old code)
-    "LegacyObservation",
+    "UrbanexAction",
+    "UrbanexObservation",
     "LegacyAction",
+    "LegacyObservation",
 ]
-

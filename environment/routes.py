@@ -37,10 +37,10 @@ _MAX_FUEL = max(p["fuel_multiplier"] for p in ROUTE_PROFILES.values())
 
 # Traffic and weather multipliers
 TRAFFIC_MULTIPLIERS = {"low": 1.0, "medium": 1.15, "high": 1.30}
-WEATHER_MULTIPLIERS = {"clear": 1.0, "rain": 1.10, "fog": 1.15}
+WEATHER_MULTIPLIERS = {"clear": 1.0, "rain": 1.10, "fog": 1.15, "heavy_rain": 1.25}
 
 # Weather amplifies hidden risk
-WEATHER_RISK_MULTIPLIERS = {"clear": 1.0, "rain": 1.35, "fog": 1.50}
+WEATHER_RISK_MULTIPLIERS = {"clear": 1.0, "rain": 1.35, "fog": 1.50, "heavy_rain": 1.80}
 TRAFFIC_RISK_MULTIPLIERS = {"low": 1.0, "medium": 1.20, "high": 1.55}
 
 
@@ -82,6 +82,8 @@ class RouteCalculator:
             # Safety score: start at 1.0, subtract safety impact scaled by exposure
             safety_impact = incident_manager.total_safety_impact_on_route(route_id) * exposure
             safety_score = max(0.0, 1.0 - safety_impact)
+            if weather == "heavy_rain":
+                safety_score = max(0.0, safety_score - 0.3)
 
             # Incident count (full count for agent awareness)
             incident_count = len(incident_manager.get_incidents_on_route(route_id))

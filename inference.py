@@ -21,17 +21,27 @@ def llm_action(obs: dict) -> dict:
         routes = obs.get("available_routes", [])
         current = obs.get("current_route")
         incidents = obs.get("active_incidents", [])
-        prompt = f"""You are a city navigation agent. Choose one action.
-Current route: {current}
-Routes: {[r['route_id'] for r in routes]}
-Incidents: {len(incidents)}
-Distance left: {obs.get('distance_remaining_km', 0):.2f} km
+        route_details = "; ".join(
+            f"{route['route_id']}: {route.get('estimated_time_min', 0):.1f} min, "
+            f"{route.get('incident_count', 0)} incidents, safety={route.get('safety_score', 0):.2f}, "
+            f"hidden_risk={route.get('hidden_risk_prob', 0):.2f}"
+            for route in routes
+        ) or "none"
+        current_route_incidents = [
+            f"{incident.get('severity', 'unknown')} {incident.get('type', 'incident')}"
+            for incident in incidents
+            if current and current in incident.get("affects_routes", [])
+        ]
+        current_incident_text = ", ".join(current_route_incidents) if current_route_incidents else "none"
+        prompt = f"""You are an AI navigation agent in Bangalore. Your goal is to reach the destination safely and efficiently.
+Current situation: {obs.get('situation_summary', 'No summary available.')}
+Full observation: routes available are {route_details}.
+Incidents on your current route: {current_incident_text}.
 
-Reply with ONLY valid JSON, one line, no extra text:
-{{"action_type": "continue"}}
-
+Choose the single best action. Reply with only valid JSON on one line.
 Valid action_types: select_route, continue, reroute
-Valid route_ids: fastest, safe, eco"""
+Valid route_ids: fastest, safe, eco
+Example: {{"action_type":"continue"}}"""
         resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],

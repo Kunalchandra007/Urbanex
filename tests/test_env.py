@@ -28,6 +28,8 @@ def test_reset_returns_valid_observation():
     assert len(obs.available_routes) == 3
     assert obs.distance_remaining_km > 0
     assert obs.episode_done is False
+    assert isinstance(obs.situation_summary, str)
+    assert obs.situation_summary
 
 
 # Test 2: step() with valid action returns (obs, reward, done, info)
@@ -101,6 +103,22 @@ def test_all_tasks_run_5_steps(task):
         assert reward is not None
         if done:
             break
+
+
+def test_hard_task_forced_incident_and_weather_shift():
+    env = _make_env("hard")
+    obs = env.reset()
+    obs, reward, done, info = env.step(Action(action_type="select_route", route_id="safe"))
+    while obs.step < 8 and not done:
+        obs, reward, done, info = env.step(Action(action_type="continue"))
+
+    assert any(
+        incident.type == "accident"
+        and incident.severity == "high"
+        and "fastest" in incident.affects_routes
+        for incident in obs.active_incidents
+    )
+    assert obs.weather == "heavy_rain"
 
 
 # Test 7: reset() clears state between episodes (no leaking)

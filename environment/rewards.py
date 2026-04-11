@@ -86,6 +86,10 @@ class RewardCalculator:
                 None,
             )
             if selected_route:
+                if selected_route.hidden_risk_prob > 0.3 and selected_route.incident_count == 0:
+                    penalty -= 0.1
+                    reasons.append("selected high hidden-risk route without incident evidence")
+
                 # ── RISK EXPOSURE: penalty proportional to hidden risk on chosen route ──
                 risk_penalty = -0.4 * selected_route.hidden_risk_prob * safety_w
                 penalty += risk_penalty
@@ -153,6 +157,7 @@ class RewardCalculator:
             dist_after = new_obs.distance_remaining_km
             if dist_after < dist_before:
                 time_comp += 0.1 * time_w
+                time_comp += 0.05
                 reasons.append("progressing toward destination")
             # Risk exposure while continuing on a risky route
             if prev_obs.current_route:
@@ -178,6 +183,12 @@ class RewardCalculator:
         if hidden_penalty > 0.0:
             penalty -= hidden_penalty
             reasons.append(f"hidden incident consequence (delayed -{hidden_penalty:.2f})")
+
+        fuel_critical_step = task_config.get("fuel_critical_step")
+        fuel_critical_route = task_config.get("fuel_critical_route", "eco")
+        if fuel_critical_step and new_obs.step >= fuel_critical_step and new_obs.current_route == fuel_critical_route:
+            penalty -= task_config.get("fuel_critical_penalty", 0.1)
+            reasons.append(f"fuel critical: staying on {fuel_critical_route} too long")
 
         # ── Time delay penalty beyond baseline ────────────────────────────────
         if prev_obs.current_route:

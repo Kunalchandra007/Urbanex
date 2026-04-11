@@ -39,7 +39,7 @@ tasks:
   - id: hard
     name: dynamic_rerouting
     difficulty: hard
-    max_steps: 20
+    max_steps: 18
     description: Navigate a changing city with dynamic incidents and traffic
 action_space:
   type: discrete-structured
@@ -109,7 +109,7 @@ observation_space:
       description: Current traffic level
     - name: weather
       type: string
-      enum: [clear, rain, fog]
+      enum: [clear, rain, fog, heavy_rain]
       description: Current weather condition
     - name: current_route
       type: string
@@ -121,6 +121,9 @@ observation_space:
     - name: episode_done
       type: boolean
       description: Whether episode is finished
+    - name: situation_summary
+      type: string
+      description: Plain-English summary of the current navigation situation
 reward_range: [-1.0, 1.0]
 endpoints:
   health: GET /health

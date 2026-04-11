@@ -60,6 +60,8 @@ class UrbanexEnv:
 
         self._pending_penalties: Deque[Tuple[int, float]] = deque()
         self._greedy_trap_fired = False
+        self._initial_distance = 0.0
+        self._forced_incident_fired = False
 
     def reset(self, origin_name: Optional[str] = None, dest_name: Optional[str] = None) -> Observation:
         """Reset the environment and return the initial observation."""
@@ -73,9 +75,11 @@ class UrbanexEnv:
         self._pending_penalties = deque()
         self._greedy_trap_fired = False
         self._rewards.reset()
+        self._forced_incident_fired = False
 
         self._city.reset(origin_name=origin_name, dest_name=dest_name)
         self._incidents.reset()
+        self._initial_distance = self._city.distance_remaining_km()
 
         for inc_cfg in self.config.get("setup_incidents", []):
             loc = self._city.random_waypoint_near(inc_cfg["affects_routes"][0])
@@ -201,6 +205,18 @@ class UrbanexEnv:
                         lifetime_steps=4,
                     )
 
+        force_incident_step = self.config.get("force_incident_step")
+        if force_incident_step and self._step == force_incident_step and not self._forced_incident_fired:
+            forced_route = self.config.get("force_incident_route", "fastest")
+            loc = self._city.random_waypoint_near(forced_route)
+            self._incidents.place_incident(
+                incident_type=self.config.get("force_incident_type", "accident"),
+                severity=self.config.get("force_incident_severity", "high"),
+                affects_routes=[forced_route],
+                location=loc,
+            )
+            self._forced_incident_fired = True
+
         t1 = self.config.get("traffic_change_step")
         t2 = self.config.get("traffic_change_step_2")
         if t2 and self._step >= t2:
@@ -235,17 +251,66 @@ class UrbanexEnv:
             step=self._step,
             rng=self._rng,
         )
+        active_incidents = self._incidents.get_all_incidents()
+        distance_remaining = round(self._city.distance_remaining_km(), 3)
         return Observation(
             step=self._step,
             current_location=list(self._city.current_location),
             destination=list(self._city.destination),
             available_routes=routes,
-            active_incidents=self._incidents.get_all_incidents(),
+            active_incidents=active_incidents,
             traffic_level=self._traffic_level,
             weather=self._weather,
             current_route=self._current_route,
-            distance_remaining_km=round(self._city.distance_remaining_km(), 3),
+            distance_remaining_km=distance_remaining,
             episode_done=self._done,
+            situation_summary=self._build_situation_summary(
+                routes=routes,
+                active_incidents=active_incidents,
+                distance_remaining_km=distance_remaining,
+            ),
+        )
+
+    def _build_situation_summary(self, routes, active_incidents, distance_remaining_km: float) -> str:
+        progress_pct = 0
+        if self._initial_distance > 0:
+            progress_ratio = 1.0 - (distance_remaining_km / self._initial_distance)
+            progress_pct = max(0, min(100, round(progress_ratio * 100)))
+
+        if self._current_route:
+            route_text = f"Currently on {self._current_route} route."
+        else:
+            route_text = "No route selected yet."
+
+        route_incidents = [
+            incident
+            for incident in active_incidents
+            if self._current_route and self._current_route in incident.affects_routes
+        ]
+        relevant_incidents = route_incidents or active_incidents
+        high_incidents = [incident for incident in relevant_incidents if incident.severity == "high"]
+        medium_incidents = [incident for incident in relevant_incidents if incident.severity == "medium"]
+
+        if high_incidents:
+            incident_types = ", ".join(sorted({incident.type for incident in high_incidents}))
+            incident_text = (
+                f"WARNING: {len(high_incidents)} high-severity {incident_types} incident"
+                f"{'s' if len(high_incidents) != 1 else ''} ahead."
+            )
+        elif medium_incidents:
+            incident_types = ", ".join(sorted({incident.type for incident in medium_incidents}))
+            incident_text = (
+                f"Caution: {len(medium_incidents)} medium-severity {incident_types} incident"
+                f"{'s' if len(medium_incidents) != 1 else ''} affecting the trip."
+            )
+        else:
+            incident_text = "All routes clear."
+
+        route_names = ", ".join(route.route_id for route in routes) if routes else "none"
+        return (
+            f"{route_text} {distance_remaining_km:.1f}km remaining ({progress_pct}% complete). "
+            f"Traffic: {self._traffic_level}. Weather: {self._weather}. "
+            f"{incident_text} Available routes: {route_names}."
         )
 
     def _is_done(self) -> bool:
