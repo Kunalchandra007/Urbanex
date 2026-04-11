@@ -19,7 +19,7 @@ def _finalize_score(value: float) -> float:
     OpenEnv hackathon validator expects task scores to be strictly inside (0, 1),
     not equal to the boundaries.
     """
-    return round(_clamp(value, 0.0001, 0.9999), 4)
+    return round(_clamp(value, 0.05, 0.95), 4)
 
 
 def grade(trajectory: List[dict]) -> float:
@@ -28,7 +28,7 @@ def grade(trajectory: List[dict]) -> float:
     Each element: {"obs": Observation, "action": Action, "reward": Reward}
     """
     if not trajectory:
-        return 0.0
+        return 0.05
 
     score = 0.0
 

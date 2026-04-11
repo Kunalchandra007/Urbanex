@@ -103,7 +103,7 @@ def test_grader_differentiates_trajectories(grader):
     )
 
 
-# Test 5: empty trajectory returns 0.0
+# Test 5: empty trajectory returns the minimum open-interval score
 @pytest.mark.parametrize("grader", [grade_easy, grade_medium, grade_hard])
 def test_empty_trajectory_returns_zero(grader):
-    assert grader([]) == 0.0
+    assert grader([]) == 0.05
