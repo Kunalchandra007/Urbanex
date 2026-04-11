@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-Test script that simulates what the hackathon validator does.
+Test script that simulates the hackathon validator's inference parsing.
 Run this and paste the full output.
 """
-import sys
 import os
-import json
+import re
 import subprocess
+import sys
 from pathlib import Path
 
+START_RE = re.compile(r"^\[START\] task=(\w+) env=urbanex model=(.+)$")
+STEP_RE = re.compile(
+    r"^\[STEP\] step=(\d+) action=([^\s]+) reward=(-?\d+\.\d{2}) "
+    r"done=(true|false) error=(.+)$"
+)
+END_RE = re.compile(
+    r"^\[END\] task=(\w+) success=(true|false) score=(\d+\.\d{2}) "
+    r"steps=(\d+) rewards=(.*)$"
+)
+
+
 def test_inference_output():
-    """Test that inference.py can run and outputs valid JSON."""
+    """Test that inference.py emits validator-compatible trace lines."""
     print("\n" + "="*80)
     print("[TEST] Running inference.py (simulating validator)")
     print("="*80 + "\n")
@@ -36,34 +47,64 @@ def test_inference_output():
         print(result.stderr)
         print(f"\nExit code: {result.returncode}")
         
-        # Try to find and parse the final JSON array output.
-        # inference.py may print structured log lines like [START]/[STEP]/[END]
-        # before emitting the final JSON payload.
-        lines = result.stdout.strip().split('\n')
-        json_start = -1
-        for i in range(len(lines) - 1, -1, -1):
-            line = lines[i].strip()
-            if line.startswith('[{') or line == '[':
-                json_start = i
-                break
-        
-        if json_start >= 0:
-            json_str = '\n'.join(lines[json_start:])
-            try:
-                data = json.loads(json_str)
-                print(f"\n[OK] JSON output is valid!")
-                print("Parsed JSON:")
-                for task_result in data:
-                    print(f"  - {task_result['task']}: score={task_result['score']}, steps={task_result['steps']}")
-                return True
-            except json.JSONDecodeError as e:
-                print(f"\n[ERROR] JSON parsing failed: {e}")
-                print("Last 500 chars of output:")
-                print(result.stdout[-500:])
-                return False
-        else:
-            print("\n[ERROR] No JSON output found in stdout!")
-            return False
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        current_task = None
+        ended_tasks = []
+        step_counts = {}
+
+        for line in lines:
+            start_match = START_RE.match(line)
+            if start_match:
+                current_task = start_match.group(1)
+                step_counts[current_task] = 0
+                continue
+
+            step_match = STEP_RE.match(line)
+            if step_match:
+                if current_task is None:
+                    print(f"\n[ERROR] STEP appeared before START: {line}")
+                    return False
+                reward = float(step_match.group(3))
+                if not (-0.95 <= reward <= 0.95):
+                    print(f"\n[ERROR] STEP reward out of safe display range: {line}")
+                    return False
+                step_counts[current_task] += 1
+                continue
+
+            end_match = END_RE.match(line)
+            if end_match:
+                task = end_match.group(1)
+                score = float(end_match.group(3))
+                steps = int(end_match.group(4))
+                rewards = [part for part in end_match.group(5).split(",") if part]
+
+                if not (0.0 < score < 1.0):
+                    print(f"\n[ERROR] END score out of open interval: {line}")
+                    return False
+                if steps != step_counts.get(task, 0):
+                    print(
+                        f"\n[ERROR] END step count mismatch for {task}: "
+                        f"expected {step_counts.get(task, 0)}, got {steps}"
+                    )
+                    return False
+                if rewards and len(rewards) != steps:
+                    print(
+                        f"\n[ERROR] END rewards length mismatch for {task}: "
+                        f"{len(rewards)} rewards for {steps} steps"
+                    )
+                    return False
+                ended_tasks.append(task)
+                current_task = None
+                continue
+
+        if sorted(ended_tasks) == ["easy", "hard", "medium"]:
+            print("\n[OK] Inference output matches validator trace format")
+            for task in ended_tasks:
+                print(f"  - {task}: steps={step_counts.get(task, 0)}")
+            return True
+
+        print(f"\n[ERROR] Missing task END blocks. Saw: {ended_tasks}")
+        return False
             
     except subprocess.TimeoutExpired:
         print("[ERROR] TIMEOUT: inference.py took longer than 120 seconds")
